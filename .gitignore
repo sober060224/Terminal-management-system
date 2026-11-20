@@ -1,0 +1,8 @@
+# Java
+backend/target/
+
+# Node
+frontend/node_modules/
+
+# 打包产物由 `npm run build` 生成，重新构建即可
+backend/src/main/resources/static/

@@ -1,0 +1,39 @@
+server:
+  port: 8089
+  servlet:
+    session:
+      timeout: 2h
+      cookie:
+        same-site: lax
+        http-only: true
+
+spring:
+  application:
+    name: ferry-backend
+  datasource:
+    url: jdbc:mysql://localhost:${DB_PORT:3306}/ferry_system?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 10000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+    show-sql: false
+  jackson:
+    # Jackson 3 已把日期输出改成默认 ISO-8601 字符串，
+    # serialization.write-dates-as-timestamps 这个开关不存在，
+    # 留着会让启动时绑定属性失败。
+    time-zone: Asia/Shanghai
+  web:
+    resources:
+      add-mappings: true
+logging:
+  level:
+    com.gdou.ferry: INFO
