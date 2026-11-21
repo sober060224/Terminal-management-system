@@ -7,6 +7,7 @@ import com.gdou.ferry.entity.Schedule;
 import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.entity.User;
 import com.gdou.ferry.entity.UserStatus;
+import com.gdou.ferry.dto.OrderRowView;
 import com.gdou.ferry.repository.OrdersRepository;
 import com.gdou.ferry.repository.ScheduleRepository;
 import com.gdou.ferry.repository.TicketRepository;
@@ -18,7 +19,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,10 +59,11 @@ class OrderQueryServiceTest {
         when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(ticket));
         when(scheduleRepository.findAllById(List.of(2L))).thenReturn(List.of(schedule));
 
-        List<Map<String, Object>> views = service.myOrders(99L);
+        List<OrderRowView> views = service.myOrders(99L);
 
-        assertEquals(7L, views.get(0).get("routeId"));
-        assertEquals(1, ((List<?>) views.get(0).get("tickets")).size());
+        assertEquals(7L, views.get(0).routeId());
+        assertEquals(1, views.get(0).tickets().size());
+        assertEquals(new BigDecimal("100.00"), views.get(0).tickets().get(0).price());
         verify(scheduleRepository).findAllById(List.of(2L));
     }
 

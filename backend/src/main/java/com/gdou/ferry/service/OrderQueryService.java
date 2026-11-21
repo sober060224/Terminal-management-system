@@ -1,7 +1,7 @@
 package com.gdou.ferry.service;
 
 import com.gdou.ferry.common.LoginUser;
-import com.gdou.ferry.dto.OrderViews;
+import com.gdou.ferry.dto.OrderRowView;
 import com.gdou.ferry.entity.Orders;
 import com.gdou.ferry.entity.Role;
 import com.gdou.ferry.entity.Schedule;
@@ -36,7 +36,7 @@ public class OrderQueryService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> myOrders(Long passengerId) {
+    public List<OrderRowView> myOrders(Long passengerId) {
         return views(ordersRepository.findByPassengerIdOrderByCreateTimeDesc(passengerId));
     }
 
@@ -44,7 +44,7 @@ public class OrderQueryService {
      * 售票员/管理员订单列表：管理员看全部，售票员看自己经手的。
      */
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> sellerOrders(LoginUser loginUser) {
+    public List<OrderRowView> sellerOrders(LoginUser loginUser) {
         List<Orders> orders = loginUser.getRole() == Role.ADMIN
                 ? ordersRepository.findAll()
                 : ordersRepository.findBySellerIdOrderByCreateTimeDesc(loginUser.getId());
@@ -52,7 +52,7 @@ public class OrderQueryService {
     }
 
     /** 订单视图补上 routeId，前端改签时据此筛「同航线」目标班次。 */
-    private List<Map<String, Object>> views(List<Orders> orders) {
+    private List<OrderRowView> views(List<Orders> orders) {
         if (orders.isEmpty()) {
             return List.of();
         }
@@ -63,15 +63,12 @@ public class OrderQueryService {
                 .findByOrderIdInOrderByIdAsc(orders.stream().map(Orders::getId).toList())
                 .stream().collect(Collectors.groupingBy(Ticket::getOrderId));
         return orders.stream()
-                .map(order -> {
-                    Map<String, Object> view = OrderViews.orderWithTickets(
-                            order, tickets.getOrDefault(order.getId(), List.of()));
-                    Schedule schedule = schedules.get(order.getScheduleId());
-                    if (schedule != null) {
-                        view.put("routeId", schedule.getRouteId());
-                    }
-                    return view;
-                })
+                .map(order -> OrderRowView.of(order, tickets.getOrDefault(order.getId(), List.of()),
+                        routeIdOf(schedules.get(order.getScheduleId()))))
                 .toList();
+    }
+
+    private Long routeIdOf(Schedule schedule) {
+        return schedule == null ? null : schedule.getRouteId();
     }
 }
