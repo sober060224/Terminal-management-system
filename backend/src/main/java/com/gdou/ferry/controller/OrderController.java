@@ -3,6 +3,7 @@ package com.gdou.ferry.controller;
 import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.common.Result;
 import com.gdou.ferry.dto.OrderForms;
+import com.gdou.ferry.service.OrderQueryService;
 import com.gdou.ferry.service.OrderService;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,14 +25,16 @@ import java.util.Map;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderQueryService orderQueryService;
 
-    public OrderController(OrderService orderService) {
+    public OrderController(OrderService orderService, OrderQueryService orderQueryService) {
         this.orderService = orderService;
+        this.orderQueryService = orderQueryService;
     }
 
     @GetMapping("/mine")
     public Result<List<Map<String, Object>>> mine(@AuthenticationPrincipal LoginUser loginUser) {
-        return Result.ok(orderService.myOrders(loginUser.getId()));
+        return Result.ok(orderQueryService.myOrders(loginUser.getId()));
     }
 
     /** 乘客自购：passengerId 取登录人，sellerId 留空。 */
