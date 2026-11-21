@@ -130,17 +130,15 @@ public class OrderService {
     public Orders payOrder(Long orderId, LoginUser loginUser) {
         Orders order = loadOrder(orderId);
         checkOrderPermission(order, loginUser);
-        if (!"待支付".equals(order.getStatus())) {
-            throw new BizException("订单状态不允许支付", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
-        }
-        if (order.getExpireAt() != null && order.getExpireAt().isBefore(LocalDateTime.now())) {
+        LocalDateTime now = LocalDateTime.now();
+        if (order.getExpireAt() != null && order.getExpireAt().isBefore(now)) {
             throw new BizException("订单已超时，请重新下单", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
 
-        order.setStatus("已支付");
-        order.setPayTime(LocalDateTime.now());
-        order.setExpireAt(null);
-        ordersRepository.save(order);
+        // 不持班次锁，靠条件更新判定状态：并发支付、取消、超时清理只有一方能改到行
+        if (ordersRepository.markPaid(orderId, now) == 0) {
+            throw new BizException("订单状态不允许支付", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
 
         for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(orderId)) {
             if (!"待支付".equals(ticket.getStatus())) {
@@ -154,7 +152,7 @@ public class OrderService {
                 seatRepository.save(seat);
             });
         }
-        return order;
+        return loadOrder(orderId);
     }
 
     /**
@@ -164,17 +162,15 @@ public class OrderService {
     public Orders cancelOrder(Long orderId, LoginUser loginUser) {
         Orders order = loadOrder(orderId);
         checkOrderPermission(order, loginUser);
-        if (!"待支付".equals(order.getStatus())) {
+        if (ordersRepository.markCancelled(orderId) == 0) {
             throw new BizException("只有待支付订单可以取消", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-        order.setStatus("已取消");
-        ordersRepository.save(order);
         for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(orderId)) {
             ticket.setStatus("已取消");
             ticketRepository.save(ticket);
             releaseSeat(ticket.getSeatId());
         }
-        return order;
+        return loadOrder(orderId);
     }
 
     /**
@@ -192,15 +188,18 @@ public class OrderService {
         }
 
         Schedule schedule = scheduleLock.lock(order.getScheduleId());
-        BigDecimal refund = FareRules.refundable(ticket.getPrice(), schedule.getDepartTime(), LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal refund = FareRules.refundable(ticket.getPrice(), schedule.getDepartTime(), now);
+        if (ticketRepository.markRefunded(ticket.getId(), refund, "乘客退票", now) == 0) {
+            throw new BizException("只有已支付的船票可以退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
 
         // 锁顺序 schedule → seat → orders → ticket（ADR-0002）
         releaseSeat(ticket.getSeatId());
         ticket.setRefundAmount(refund);
         ticket.setRefundReason("乘客退票");
-        ticket.setRefundTime(LocalDateTime.now());
+        ticket.setRefundTime(now);
         ticket.setStatus("已退票");
-        ticketRepository.save(ticket);
 
         order.setTotalAmount(order.getTotalAmount().subtract(refund));
         if (order.getTotalAmount().compareTo(BigDecimal.ZERO) == 0) {
@@ -224,12 +223,13 @@ public class OrderService {
             throw new BizException("只有已支付的船票可以改签", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
 
-        Schedule target = scheduleLock.lock(targetScheduleId);
+        // 改签同时写原班次和目标班次，两个班次一起锁（按 id 升序），避免互相改签时死锁
+        Map<Long, Schedule> locked = scheduleLock.lockAll(ticket.getScheduleId(), targetScheduleId);
+        Schedule origin = locked.get(ticket.getScheduleId());
+        Schedule target = locked.get(targetScheduleId);
         if (!"售票中".equals(target.getStatus())) {
             throw new BizException("目标班次不在售票中", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-        Schedule origin = scheduleRepository.findById(order.getScheduleId())
-                .orElseThrow(() -> new BizException("原班次不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
         if (!origin.getRouteId().equals(target.getRouteId())) {
             throw new BizException("改签仅限同航线", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
@@ -250,20 +250,20 @@ public class OrderService {
         BigDecimal diff = target.getPrice().subtract(ticket.getPrice());
 
         // 原票置已退票：refund_amount 只记实际退回的现金（补差价记 0，退差额记差额）
-        ticket.setRefundAmount(diff.signum() < 0 ? diff.negate() : BigDecimal.ZERO);
+        BigDecimal refund = diff.signum() < 0 ? diff.negate() : BigDecimal.ZERO;
+        if (ticketRepository.markRefunded(ticket.getId(), refund, "改签", now) == 0) {
+            throw new BizException("只有已支付的船票可以改签", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
+        ticket.setRefundAmount(refund);
         ticket.setRefundReason("改签");
         ticket.setRefundTime(now);
         ticket.setStatus("已退票");
-        ticketRepository.save(ticket);
         releaseSeat(ticket.getSeatId());
 
-        // 订单总额改为新票合计（实收口径：+差价或 −差额）
+        // 订单总额改为新票合计（实收口径：+差价或 −差额）；新票仍是已支付，订单状态不跟着变
         order.setTotalAmount(order.getTotalAmount().add(diff));
         if (order.getTotalAmount().compareTo(BigDecimal.ZERO) < 0) {
             throw new BizException("订单金额异常，改签失败", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
-        }
-        if (order.getTotalAmount().compareTo(BigDecimal.ZERO) == 0) {
-            order.setStatus("已退票");
         }
         ordersRepository.save(order);
 
@@ -292,10 +292,11 @@ public class OrderService {
     @Transactional
     public void expireStaleOrders() {
         LocalDateTime now = LocalDateTime.now();
-        for (Orders order : ordersRepository.findByStatusAndExpireAtBefore("待支付", now)) {
-            order.setStatus("已取消");
-            ordersRepository.save(order);
-            for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(order.getId())) {
+        for (Long orderId : ordersRepository.findIdsByStatusAndExpireAtBefore("待支付", now)) {
+            if (ordersRepository.markCancelled(orderId) == 0) {
+                continue;
+            }
+            for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(orderId)) {
                 ticket.setStatus("已取消");
                 ticketRepository.save(ticket);
                 releaseSeat(ticket.getSeatId());
