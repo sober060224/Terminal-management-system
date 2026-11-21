@@ -8,11 +8,15 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
     List<Ticket> findByOrderIdOrderByIdAsc(Long orderId);
+
+    /** 订单列表用：一次取回多单的票，避免按单查询。 */
+    List<Ticket> findByOrderIdInOrderByIdAsc(Collection<Long> orderIds);
 
     /**
      * 一人一票判重：该乘船人在该班次是否已有未作废（非已退票/已取消）的票。

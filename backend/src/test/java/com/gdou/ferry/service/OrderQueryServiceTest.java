@@ -4,6 +4,7 @@ import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.entity.Orders;
 import com.gdou.ferry.entity.Role;
 import com.gdou.ferry.entity.Schedule;
+import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.entity.User;
 import com.gdou.ferry.entity.UserStatus;
 import com.gdou.ferry.repository.OrdersRepository;
@@ -49,13 +50,19 @@ class OrderQueryServiceTest {
         schedule.setId(2L);
         schedule.setRouteId(7L);
 
+        Ticket ticket = new Ticket();
+        ticket.setId(10L);
+        ticket.setOrderId(1L);
+        ticket.setPrice(new BigDecimal("100.00"));
+
         when(ordersRepository.findByPassengerIdOrderByCreateTimeDesc(99L)).thenReturn(List.of(order));
-        when(ticketRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of());
+        when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(ticket));
         when(scheduleRepository.findAllById(List.of(2L))).thenReturn(List.of(schedule));
 
         List<Map<String, Object>> views = service.myOrders(99L);
 
         assertEquals(7L, views.get(0).get("routeId"));
+        assertEquals(1, ((List<?>) views.get(0).get("tickets")).size());
         verify(scheduleRepository).findAllById(List.of(2L));
     }
 

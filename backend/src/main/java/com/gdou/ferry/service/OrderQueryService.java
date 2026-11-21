@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 订单查询：只读，负责把订单 + 船票 + 班次组装成前端视图。
@@ -52,12 +53,19 @@ public class OrderQueryService {
 
     /** 订单视图补上 routeId，前端改签时据此筛「同航线」目标班次。 */
     private List<Map<String, Object>> views(List<Orders> orders) {
+        if (orders.isEmpty()) {
+            return List.of();
+        }
         Map<Long, Schedule> schedules = new HashMap<>();
         scheduleRepository.findAllById(orders.stream().map(Orders::getScheduleId).distinct().toList())
                 .forEach(schedule -> schedules.put(schedule.getId(), schedule));
+        Map<Long, List<Ticket>> tickets = ticketRepository
+                .findByOrderIdInOrderByIdAsc(orders.stream().map(Orders::getId).toList())
+                .stream().collect(Collectors.groupingBy(Ticket::getOrderId));
         return orders.stream()
                 .map(order -> {
-                    Map<String, Object> view = OrderViews.orderWithTickets(order, ticketsOf(order.getId()));
+                    Map<String, Object> view = OrderViews.orderWithTickets(
+                            order, tickets.getOrDefault(order.getId(), List.of()));
                     Schedule schedule = schedules.get(order.getScheduleId());
                     if (schedule != null) {
                         view.put("routeId", schedule.getRouteId());
@@ -65,9 +73,5 @@ public class OrderQueryService {
                     return view;
                 })
                 .toList();
-    }
-
-    private List<Ticket> ticketsOf(Long orderId) {
-        return ticketRepository.findByOrderIdOrderByIdAsc(orderId);
     }
 }
