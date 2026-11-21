@@ -37,3 +37,7 @@ spring:
 logging:
   level:
     com.gdou.ferry: INFO
+
+ferry:
+  # 订单支付时限（分钟），超时未支付由 OrderService 定时任务释放座位
+  order-pay-minutes: 15
