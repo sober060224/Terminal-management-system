@@ -10,7 +10,6 @@ import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.entity.User;
 import com.gdou.ferry.entity.UserStatus;
 import com.gdou.ferry.repository.OrdersRepository;
-import com.gdou.ferry.repository.ScheduleRepository;
 import com.gdou.ferry.repository.SeatRepository;
 import com.gdou.ferry.repository.TicketRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,8 +36,6 @@ import static org.mockito.Mockito.when;
 class OrderServiceTest {
 
     @Mock
-    private ScheduleRepository scheduleRepository;
-    @Mock
     private SeatRepository seatRepository;
     @Mock
     private OrdersRepository ordersRepository;
@@ -63,8 +60,7 @@ class OrderServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderService(scheduleRepository, seatRepository, ordersRepository,
-                ticketRepository, scheduleLock);
+        service = new OrderService(seatRepository, ordersRepository, ticketRepository, scheduleLock);
         ReflectionTestUtils.setField(service, "orderPayMinutes", 15L);
     }
 

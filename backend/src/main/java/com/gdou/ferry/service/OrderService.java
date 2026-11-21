@@ -5,14 +5,12 @@ import com.gdou.ferry.common.ErrorCodes;
 import com.gdou.ferry.common.FareRules;
 import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.dto.OrderForms;
-import com.gdou.ferry.dto.OrderViews;
 import com.gdou.ferry.entity.Orders;
 import com.gdou.ferry.entity.Role;
 import com.gdou.ferry.entity.Schedule;
 import com.gdou.ferry.entity.Seat;
 import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.repository.OrdersRepository;
-import com.gdou.ferry.repository.ScheduleRepository;
 import com.gdou.ferry.repository.SeatRepository;
 import com.gdou.ferry.repository.TicketRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,7 +35,6 @@ import java.util.Set;
 @Service
 public class OrderService {
 
-    private final ScheduleRepository scheduleRepository;
     private final SeatRepository seatRepository;
     private final OrdersRepository ordersRepository;
     private final TicketRepository ticketRepository;
@@ -47,12 +44,10 @@ public class OrderService {
     @Value("${ferry.order-pay-minutes:15}")
     private long orderPayMinutes;
 
-    public OrderService(ScheduleRepository scheduleRepository,
-                        SeatRepository seatRepository,
+    public OrderService(SeatRepository seatRepository,
                         OrdersRepository ordersRepository,
                         TicketRepository ticketRepository,
                         ScheduleLock scheduleLock) {
-        this.scheduleRepository = scheduleRepository;
         this.seatRepository = seatRepository;
         this.ordersRepository = ordersRepository;
         this.ticketRepository = ticketRepository;
@@ -294,37 +289,6 @@ public class OrderService {
         newTicket.setChangedFromTicketId(ticket.getId());
         newTicket.setChangedAt(now);
         return ticketRepository.save(newTicket);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> myOrders(Long passengerId) {
-        return ordersRepository.findByPassengerIdOrderByCreateTimeDesc(passengerId).stream()
-                .map(o -> withRoute(OrderViews.orderWithTickets(o, ticketsOf(o.getId())), o.getScheduleId()))
-                .toList();
-    }
-
-    /**
-     * 售票员/管理员订单列表：管理员看全部，售票员看自己经手的。
-     */
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> sellerOrders(LoginUser loginUser) {
-        List<Orders> orders = loginUser.getRole() == Role.ADMIN
-                ? ordersRepository.findAll()
-                : ordersRepository.findBySellerIdOrderByCreateTimeDesc(loginUser.getId());
-        return orders.stream()
-                .map(o -> withRoute(OrderViews.orderWithTickets(o, ticketsOf(o.getId())), o.getScheduleId()))
-                .toList();
-    }
-
-    /** 订单视图补上 routeId，前端改签时据此筛「同航线」目标班次。 */
-    private Map<String, Object> withRoute(Map<String, Object> view, Long scheduleId) {
-        scheduleRepository.findById(scheduleId).ifPresent(s -> view.put("routeId", s.getRouteId()));
-        return view;
-    }
-
-    @Transactional(readOnly = true)
-    public List<Ticket> ticketsOf(Long orderId) {
-        return ticketRepository.findByOrderIdOrderByIdAsc(orderId);
     }
 
     private Orders loadOrder(Long orderId) {
