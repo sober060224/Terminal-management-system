@@ -55,7 +55,7 @@ CREATE TABLE schedule (
     arrive_time DATETIME NOT NULL COMMENT '到达时间（可早于发船时间表示次日）',
     price DECIMAL(10,2) NOT NULL COMMENT '票价',
     total_seats INT NOT NULL COMMENT '冗余 ship.total_seats 快速查询',
-    sold_seats INT NOT NULL DEFAULT 0 COMMENT '已售座位数（维护用，真相在视图）',
+    sold_seats INT NOT NULL DEFAULT 0 COMMENT '已售座位数（冗余列，后端不维护，真相在座位表）',
     status ENUM('待发布', '售票中', '已发船', '已完成', '已取消') NOT NULL DEFAULT '待发布',
     FOREIGN KEY (route_id) REFERENCES route(id),
     FOREIGN KEY (ship_id) REFERENCES ship(id),
@@ -110,7 +110,7 @@ CREATE TABLE ticket (
     id_card VARCHAR(18) NOT NULL COMMENT '乘客身份证',
     price DECIMAL(10,2) NOT NULL COMMENT '该票票价',
     status ENUM('待支付', '已支付', '已检票', '已完成', '已取消', '已退票') NOT NULL DEFAULT '待支付',
-    refund_amount DECIMAL(10,2) NULL COMMENT '退票金额',
+    refund_amount DECIMAL(10,2) NULL COMMENT '实退现金（改签补差价记 0，退差额记差额）',
     refund_reason VARCHAR(200) NULL COMMENT '退票原因',
     refund_time DATETIME NULL,
     changed_from_ticket_id BIGINT NULL COMMENT '改签源票ID（ADR-0004）',
@@ -175,8 +175,8 @@ LEFT JOIN ticket t ON sch.id = t.schedule_id
 GROUP BY sch.id, sch.total_seats;
 
 -- 视图3: 售票员业绩
--- 收入按「票」计价，不能按订单总额：一张订单 N 张票时，用 orders.total_amount 求和
--- 会把同一笔钱算 N 次。订单数与票数用子查询分开统计，避免 JOIN 扇出。
+-- 收入取 SUM(orders.total_amount)：该字段是订单当前实收金额（退票递减、改签改为新票合计），
+-- 直接对订单求和即可，不绕票表。订单数与票数用子查询分开统计，避免 JOIN 扇出。
 CREATE OR REPLACE VIEW v_seller_performance AS
 SELECT
     u.id AS seller_id,
@@ -186,10 +186,10 @@ SELECT
        FROM ticket t JOIN orders o2 ON o2.id = t.order_id
       WHERE o2.seller_id = u.id
         AND t.status IN ('已支付', '已检票', '已完成')) AS total_tickets,
-    (SELECT COALESCE(SUM(t.price), 0)
-       FROM ticket t JOIN orders o2 ON o2.id = t.order_id
-      WHERE o2.seller_id = u.id
-        AND t.status IN ('已支付', '已检票', '已完成')) AS total_revenue
+    (SELECT COALESCE(SUM(o3.total_amount), 0)
+       FROM orders o3
+      WHERE o3.seller_id = u.id
+        AND o3.status IN ('已支付', '已检票', '已完成')) AS total_revenue
 FROM user u
 WHERE u.role = 'SELLER';
 
@@ -294,7 +294,7 @@ DELIMITER ;
 -- 5. 演示数据
 -- ====================
 
--- 用户（密码已BCrypt加密：admin/admin123, seller1/seller123, 乘客/123456）
+-- 用户（密码已BCrypt加密：admin123, seller1/seller123, 乘客/123456）
 INSERT INTO user (username, password, role, name, phone, id_card, status) VALUES
 ('admin', '$2a$10$Fr.OoKG44B8HiPyHHT9z1O1XnQYM6N7aVZORh20/epKiA8IFUw8Dq', 'ADMIN', '系统管理员', '13800000001', '440100199001011001', 'ACTIVE'),
 ('seller1', '$2a$10$ccLqXqcjpnrwyMSSRrkWfudu5bJoEd3DfD6lnMaBzLDXZpfYWQDx2', 'SELLER', '张售票', '13800000002', '440100199002021002', 'ACTIVE'),
