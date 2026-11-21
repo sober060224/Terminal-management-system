@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,15 +30,18 @@ public class ScheduleQueryService {
     private final RouteRepository routeRepository;
     private final ShipRepository shipRepository;
     private final SeatRepository seatRepository;
+    private final Clock clock;
 
     public ScheduleQueryService(ScheduleRepository scheduleRepository,
                                 RouteRepository routeRepository,
                                 ShipRepository shipRepository,
-                                SeatRepository seatRepository) {
+                                SeatRepository seatRepository,
+                                Clock clock) {
         this.scheduleRepository = scheduleRepository;
         this.routeRepository = routeRepository;
         this.shipRepository = shipRepository;
         this.seatRepository = seatRepository;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -64,7 +68,7 @@ public class ScheduleQueryService {
     public Map<String, Object> seatState(Long scheduleId) {
         scheduleRepository.findById(scheduleId)
                 .orElseThrow(() -> new BizException("班次不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         List<Map<String, Object>> seats = seatRepository.findByScheduleIdOrderByIdAsc(scheduleId).stream()
                 .map(seat -> {
                     Map<String, Object> m = new LinkedHashMap<>();

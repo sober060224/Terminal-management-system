@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
@@ -39,6 +40,7 @@ public class OrderService {
     private final OrdersRepository ordersRepository;
     private final TicketRepository ticketRepository;
     private final ScheduleLock scheduleLock;
+    private final Clock clock;
 
     /** 订单支付时限（分钟），超时未支付由定时任务释放座位。 */
     @Value("${ferry.order-pay-minutes:15}")
@@ -47,11 +49,13 @@ public class OrderService {
     public OrderService(SeatRepository seatRepository,
                         OrdersRepository ordersRepository,
                         TicketRepository ticketRepository,
-                        ScheduleLock scheduleLock) {
+                        ScheduleLock scheduleLock,
+                        Clock clock) {
         this.seatRepository = seatRepository;
         this.ordersRepository = ordersRepository;
         this.ticketRepository = ticketRepository;
         this.scheduleLock = scheduleLock;
+        this.clock = clock;
     }
 
     /**
@@ -85,10 +89,10 @@ public class OrderService {
         order.setSellerId(sellerId);
         order.setTotalAmount(schedule.getPrice().multiply(BigDecimal.valueOf(seats.size())));
         order.setStatus("待支付");
-        order.setExpireAt(LocalDateTime.now().plusMinutes(orderPayMinutes));
+        order.setExpireAt(LocalDateTime.now(clock).plusMinutes(orderPayMinutes));
         order = ordersRepository.save(order);
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         for (OrderForms.SeatRequest seat : seats) {
             Seat entity = seatRepository.findByScheduleIdAndSeatNo(scheduleId, seat.seatNo())
                     .orElseThrow(() -> new BizException("座位不存在：" + seat.seatNo(),
@@ -124,7 +128,7 @@ public class OrderService {
     public Orders payOrder(Long orderId, LoginUser loginUser) {
         Orders order = loadOrder(orderId);
         checkOrderPermission(order, loginUser);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         if (order.getExpireAt() != null && order.getExpireAt().isBefore(now)) {
             throw new BizException("订单已超时，请重新下单", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
@@ -194,7 +198,7 @@ public class OrderService {
         }
 
         Schedule schedule = scheduleLock.lock(order.getScheduleId());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         BigDecimal refund = FareRules.refundable(ticket.getPrice(), schedule.getDepartTime(), now);
         if (ticketRepository.markRefunded(ticket.getId(), refund, "乘客退票", now) == 0) {
             throw new BizException("只有已支付的船票可以退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
@@ -246,7 +250,7 @@ public class OrderService {
             throw new BizException("目标座位与目标班次不匹配",
                     HttpStatus.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR);
         }
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         checkSeatFree(targetSeat, now);
         if (ticketRepository.existsActiveTicket(ticket.getIdCard(), targetScheduleId)) {
             throw new BizException("乘船人已购买目标班次船票（一人一票）",

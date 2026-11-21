@@ -20,7 +20,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.Optional;
 
@@ -47,6 +50,7 @@ class OrderServiceTest {
     private OrderService service;
     private final LoginUser passenger = passenger(99L);
     private Schedule targetSchedule;
+    private static final LocalDateTime FIXED_NOW = LocalDateTime.of(2026, 11, 21, 12, 0);
 
     private static LoginUser passenger(Long id) {
         User user = new User();
@@ -60,7 +64,8 @@ class OrderServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new OrderService(seatRepository, ordersRepository, ticketRepository, scheduleLock);
+        service = new OrderService(seatRepository, ordersRepository, ticketRepository, scheduleLock,
+                Clock.fixed(FIXED_NOW.atZone(ZoneId.systemDefault()).toInstant(), ZoneId.systemDefault()));
         ReflectionTestUtils.setField(service, "orderPayMinutes", 15L);
     }
 
@@ -72,7 +77,7 @@ class OrderServiceTest {
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
         when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
-        when(scheduleLock.lock(1L)).thenReturn(schedule(LocalDateTime.now().plusHours(1)));
+        when(scheduleLock.lock(1L)).thenReturn(schedule(FIXED_NOW.plusHours(1)));
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
         when(seatRepository.findById(anyLong())).thenReturn(Optional.of(seat));
 
@@ -81,6 +86,7 @@ class OrderServiceTest {
         assertEquals("已退票", refunded.getStatus());
         assertEquals(0, new BigDecimal("80.00").compareTo(refunded.getRefundAmount()));
         assertEquals(0, new BigDecimal("70.00").compareTo(order.getTotalAmount()));
+        assertEquals(FIXED_NOW, refunded.getRefundTime());
         assertEquals("可选", seat.getSeatStatus());
         assertNull(seat.getOrderId());
     }
@@ -92,7 +98,7 @@ class OrderServiceTest {
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
         when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
-        when(scheduleLock.lock(1L)).thenReturn(schedule(LocalDateTime.now().plusHours(1)));
+        when(scheduleLock.lock(1L)).thenReturn(schedule(FIXED_NOW.plusHours(1)));
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(0);
 
         assertThrows(BizException.class, () -> service.refundTicket(10L, passenger));
@@ -178,9 +184,9 @@ class OrderServiceTest {
     }
 
     private void stubRebook(Orders order, Ticket ticket, BigDecimal targetPrice, Seat seat) {
-        Schedule origin = schedule(LocalDateTime.now().plusHours(5));
+        Schedule origin = schedule(FIXED_NOW.plusHours(5));
         origin.setRouteId(1L);
-        targetSchedule = schedule(LocalDateTime.now().plusHours(6));
+        targetSchedule = schedule(FIXED_NOW.plusHours(6));
         targetSchedule.setId(2L);
         targetSchedule.setRouteId(1L);
         targetSchedule.setPrice(targetPrice);
