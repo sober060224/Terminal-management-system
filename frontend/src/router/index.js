@@ -23,8 +23,20 @@ const routes = [
             {
                 path: '',
                 name: 'home',
-                component: () => import('../views/passenger/PassengerHome.vue'),
-                meta: { roles: ['PASSENGER', 'ADMIN'], title: '乘客服务' }
+                component: () => import('../views/passenger/ScheduleSearch.vue'),
+                meta: { roles: ['PASSENGER', 'ADMIN'], title: '查询班次' }
+            },
+            {
+                path: 'my-orders',
+                name: 'my-orders',
+                component: () => import('../views/passenger/MyOrders.vue'),
+                meta: { roles: ['PASSENGER', 'ADMIN'], title: '我的船票' }
+            },
+            {
+                path: 'schedule/:id',
+                name: 'seat-select',
+                component: () => import('../views/passenger/SeatSelect.vue'),
+                meta: { roles: ['PASSENGER', 'ADMIN'], title: '选座购票' }
             }
         ]
     },
@@ -37,6 +49,12 @@ const routes = [
                 name: 'admin',
                 component: () => import('../views/admin/AdminHome.vue'),
                 meta: { roles: ['ADMIN'], title: '管理后台' }
+            },
+            {
+                path: 'orders',
+                name: 'admin-orders',
+                component: () => import('../views/admin/AdminOrders.vue'),
+                meta: { roles: ['ADMIN'], title: '全部订单' }
             }
         ]
     },
@@ -49,6 +67,18 @@ const routes = [
                 name: 'seller',
                 component: () => import('../views/seller/SellerHome.vue'),
                 meta: { roles: ['SELLER', 'ADMIN'], title: '售票工作台' }
+            },
+            {
+                path: 'sell',
+                name: 'seller-sell',
+                component: () => import('../views/seller/SellerSell.vue'),
+                meta: { roles: ['SELLER', 'ADMIN'], title: '代售开票' }
+            },
+            {
+                path: 'orders',
+                name: 'seller-orders',
+                component: () => import('../views/seller/SellerOrders.vue'),
+                meta: { roles: ['SELLER', 'ADMIN'], title: '代售订单' }
             }
         ]
     },

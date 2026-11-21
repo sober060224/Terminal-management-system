@@ -16,14 +16,23 @@ const menus = computed(() => {
     if (props.role === 'ADMIN') {
         return [
             { path: '/admin', label: '管理后台', icon: 'Setting' },
+            { path: '/admin/orders', label: '全部订单', icon: 'List' },
             { path: '/seller', label: '售票工作台', icon: 'Tickets' },
-            { path: '/', label: '乘客服务', icon: 'Van' }
+            { path: '/seller/orders', label: '代售订单', icon: 'Document' },
+            { path: '/', label: '查询班次', icon: 'Van' }
         ]
     }
     if (props.role === 'SELLER') {
-        return [{ path: '/seller', label: '售票工作台', icon: 'Tickets' }]
+        return [
+            { path: '/seller', label: '售票工作台', icon: 'Tickets' },
+            { path: '/seller/sell', label: '代售开票', icon: 'CirclePlus' },
+            { path: '/seller/orders', label: '代售订单', icon: 'Document' }
+        ]
     }
-    return [{ path: '/', label: '乘客服务', icon: 'Van' }]
+    return [
+        { path: '/', label: '查询班次', icon: 'Van' },
+        { path: '/my-orders', label: '我的船票', icon: 'Document' }
+    ]
 })
 
 async function handleLogout() {
