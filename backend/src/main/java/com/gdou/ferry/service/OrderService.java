@@ -310,11 +310,11 @@ public class OrderService {
     }
 
     private void checkSeatFree(Seat seat, LocalDateTime now) {
-        if ("已售".equals(seat.getSeatStatus())) {
+        String state = seat.stateAt(now);
+        if ("已售".equals(state)) {
             throw new BizException("座位已被占用", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-        if ("锁定".equals(seat.getSeatStatus()) && seat.getLockUntil() != null
-                && seat.getLockUntil().isAfter(now)) {
+        if ("锁定".equals(state)) {
             throw new BizException("座位已被他人锁定，请稍后重试", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
     }

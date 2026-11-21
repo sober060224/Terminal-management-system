@@ -70,7 +70,7 @@ public class ScheduleQueryService {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("seatId", seat.getId());
                     m.put("seatNo", seat.getSeatNo());
-                    m.put("state", stateOf(seat, now));
+        m.put("state", seat.stateAt(now));
                     return m;
                 })
                 .toList();
@@ -102,17 +102,4 @@ public class ScheduleQueryService {
         return m;
     }
 
-    /**
-     * 座位状态惰性判断（ADR-0003）：已售 > 锁定（未到解锁时间）> 可选。
-     */
-    private String stateOf(Seat seat, LocalDateTime now) {
-        if ("已售".equals(seat.getSeatStatus())) {
-            return "已售";
-        }
-        if ("锁定".equals(seat.getSeatStatus()) && seat.getLockUntil() != null
-                && seat.getLockUntil().isAfter(now)) {
-            return "锁定";
-        }
-        return "可选";
-    }
 }

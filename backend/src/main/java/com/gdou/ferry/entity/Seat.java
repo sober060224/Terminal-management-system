@@ -33,4 +33,18 @@ public class Seat {
 
     @Column(name = "order_id")
     private Long orderId;
+
+    /**
+     * 座位当前状态（ADR-0003 惰性判断）：已售 > 锁定（未到解锁时间）> 可选。
+     * 锁定期已过按可选算，由调用方决定是否回收。
+     */
+    public String stateAt(LocalDateTime now) {
+        if ("已售".equals(seatStatus)) {
+            return "已售";
+        }
+        if ("锁定".equals(seatStatus) && lockUntil != null && lockUntil.isAfter(now)) {
+            return "锁定";
+        }
+        return "可选";
+    }
 }
