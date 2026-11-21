@@ -17,7 +17,6 @@ import com.gdou.ferry.repository.SeatRepository;
 import com.gdou.ferry.repository.TicketRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -162,15 +161,27 @@ public class OrderService {
     public Orders cancelOrder(Long orderId, LoginUser loginUser) {
         Orders order = loadOrder(orderId);
         checkOrderPermission(order, loginUser);
-        if (ordersRepository.markCancelled(orderId) == 0) {
+        if (!cancelAsSystem(orderId)) {
             throw new BizException("只有待支付订单可以取消", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
+        return loadOrder(orderId);
+    }
+
+    /**
+     * 取消待支付订单（不校验操作人），人工取消与超时清理共用。
+     *
+     * @return 订单仍是待支付并已取消返回 true；已被支付/取消/清理抢先改到行返回 false。
+     */
+    boolean cancelAsSystem(Long orderId) {
+        if (ordersRepository.markCancelled(orderId) == 0) {
+            return false;
         }
         for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(orderId)) {
             ticket.setStatus("已取消");
             ticketRepository.save(ticket);
             releaseSeat(ticket.getSeatId());
         }
-        return loadOrder(orderId);
+        return true;
     }
 
     /**
@@ -283,25 +294,6 @@ public class OrderService {
         newTicket.setChangedFromTicketId(ticket.getId());
         newTicket.setChangedAt(now);
         return ticketRepository.save(newTicket);
-    }
-
-    /**
-     * 定时清理超时未支付订单（ADR-0003：@Scheduled 只做清理，不参与锁判断）。
-     */
-    @Scheduled(fixedDelayString = "PT5M")
-    @Transactional
-    public void expireStaleOrders() {
-        LocalDateTime now = LocalDateTime.now();
-        for (Long orderId : ordersRepository.findIdsByStatusAndExpireAtBefore("待支付", now)) {
-            if (ordersRepository.markCancelled(orderId) == 0) {
-                continue;
-            }
-            for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(orderId)) {
-                ticket.setStatus("已取消");
-                ticketRepository.save(ticket);
-                releaseSeat(ticket.getSeatId());
-            }
-        }
     }
 
     @Transactional(readOnly = true)
