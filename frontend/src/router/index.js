@@ -37,6 +37,12 @@ const routes = [
                 name: 'seat-select',
                 component: () => import('../views/passenger/SeatSelect.vue'),
                 meta: { roles: ['PASSENGER', 'ADMIN'], title: '选座购票' }
+            },
+            {
+                path: 'orders/:id',
+                name: 'order-detail',
+                component: () => import('../views/OrderDetail.vue'),
+                meta: { roles: ['PASSENGER', 'ADMIN'], title: '订单详情' }
             }
         ]
     },
@@ -55,6 +61,12 @@ const routes = [
                 name: 'admin-orders',
                 component: () => import('../views/admin/AdminOrders.vue'),
                 meta: { roles: ['ADMIN'], title: '全部订单' }
+            },
+            {
+                path: 'orders/:id',
+                name: 'admin-order-detail',
+                component: () => import('../views/OrderDetail.vue'),
+                meta: { roles: ['ADMIN'], title: '订单详情' }
             }
         ]
     },
@@ -79,6 +91,12 @@ const routes = [
                 name: 'seller-orders',
                 component: () => import('../views/seller/SellerOrders.vue'),
                 meta: { roles: ['SELLER', 'ADMIN'], title: '代售订单' }
+            },
+            {
+                path: 'orders/:id',
+                name: 'seller-order-detail',
+                component: () => import('../views/OrderDetail.vue'),
+                meta: { roles: ['SELLER', 'ADMIN'], title: '订单详情' }
             }
         ]
     },

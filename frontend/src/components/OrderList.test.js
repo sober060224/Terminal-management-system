@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import ElementPlus, { ElMessageBox } from 'element-plus'
+import ElementPlus, { ElSelect } from 'element-plus'
 import { describe, expect, it, vi } from 'vitest'
 
 // 改签弹窗自己去拉班次列表，这里挡掉真实请求
@@ -51,16 +51,25 @@ function buttonWithText(wrapper, text) {
     return wrapper.findAll('button').find(button => button.text() === text)
 }
 
+// 退票改成弹窗选原因：打开弹窗后在最后一个下拉里选原因，再点确认。
+async function refundWith(wrapper, reason = '误购') {
+    await buttonWithText(wrapper, '退票').trigger('click')
+    await flushPromises()
+    const selects = wrapper.findAllComponents(ElSelect)
+    selects[selects.length - 1].vm.$emit('update:modelValue', reason)
+    await flushPromises()
+    await buttonWithText(wrapper, '确认退票').trigger('click')
+    await flushPromises()
+}
+
 describe('OrderList', () => {
     it('点退票调用注入的 refund，不再 undefined is not a function', async () => {
-        vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
         const { wrapper, api } = mountList()
         await flushPromises()
 
-        await buttonWithText(wrapper, '退票').trigger('click')
-        await flushPromises()
+        await refundWith(wrapper)
 
-        expect(api.refund).toHaveBeenCalledWith(10)
+        expect(api.refund).toHaveBeenCalledWith(10, '误购')
     })
 
     it('改签弹窗拿到订单级的 routeId，候选班次才筛得出来', async () => {
@@ -77,12 +86,10 @@ describe('OrderList', () => {
     })
 
     it('api 缺退票方法时按钮点了也不静默崩（组件不吞错）', async () => {
-        vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm')
         const { wrapper } = mountList({ refund: undefined })
         await flushPromises()
 
-        await buttonWithText(wrapper, '退票').trigger('click')
-        await flushPromises()
+        await refundWith(wrapper)
 
         expect(wrapper.exists()).toBe(true)
     })

@@ -4,5 +4,5 @@ import { sellerOrderApi } from '../../api'
 </script>
 
 <template>
-    <OrderList title="代售订单" :api="sellerOrderApi" />
+    <OrderList title="代售订单" :api="sellerOrderApi" detail-prefix="/seller/orders" />
 </template>

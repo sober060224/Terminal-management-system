@@ -5,7 +5,7 @@ import { computed } from 'vue'
 // 按排（字母）分组，每排内按座位号排序，渲染成网格。
 const props = defineProps({
     seats: { type: Array, required: true }, // [{ seatId, seatNo, state }]
-    selected: { type: Object, default: null }, // 选中的 { seatId, seatNo }
+    selected: { type: Array, default: () => [] }, // 选中的 [{ seatId, seatNo }]
     disabled: { type: Boolean, default: false }
 })
 const emit = defineEmits(['select'])
@@ -26,7 +26,7 @@ const rows = computed(() => {
 })
 
 function isSelected(seat) {
-    return props.selected && props.selected.seatId === seat.seatId
+    return props.selected.some(s => s.seatId === seat.seatId)
 }
 
 // 可选才允许点；锁定/已售一律禁用。

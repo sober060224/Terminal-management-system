@@ -102,7 +102,7 @@ async function confirm() {
                 <SeatMap
                     v-if="targetSchedule"
                     :seats="seats"
-                    :selected="picked"
+                    :selected="picked ? [picked] : []"
                     @select="(s) => (picked = s)"
                 />
                 <el-empty v-else description="请先选择目标班次" />

@@ -17,21 +17,22 @@ export const scheduleApi = {
 
 export const orderApi = {
     mine: () => request.get('/orders/mine'),
+    detail: (id) => request.get(`/orders/${id}`),
     create: (data) => request.post('/orders', data),
     pay: (id) => request.post(`/orders/${id}/pay`),
     cancel: (id) => request.post(`/orders/${id}/cancel`)
 }
 
 export const ticketApi = {
-    refund: (id) => request.post(`/tickets/${id}/refund`),
+    refund: (id, reason) => request.post(`/tickets/${id}/refund`, { reason }),
     rebook: (id, data) => request.post(`/tickets/${id}/rebook`, data)
 }
 
 export const sellerOrderApi = {
-    list: () => request.get('/seller/orders'),
+    list: (params) => request.get('/seller/orders', { params }),
     create: (data) => request.post('/seller/orders', data),
     pay: (id) => request.post(`/seller/orders/${id}/pay`),
     cancel: (id) => request.post(`/seller/orders/${id}/cancel`),
-    refund: (ticketId) => request.post(`/seller/orders/tickets/${ticketId}/refund`),
+    refund: (ticketId, reason) => request.post(`/seller/orders/tickets/${ticketId}/refund`, { reason }),
     rebook: (ticketId, data) => request.post(`/seller/orders/tickets/${ticketId}/rebook`, data)
 }
