@@ -9,14 +9,17 @@ import com.gdou.ferry.dto.TicketView;
 import com.gdou.ferry.service.OrderQueryService;
 import com.gdou.ferry.service.OrderService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 /**
  * 售票员侧订单：订单列表、代售下单、代付、代取消、代退、代改签。
@@ -35,8 +38,13 @@ public class SellerOrderController {
     }
 
     @GetMapping
-    public Result<List<OrderRowView>> list(@AuthenticationPrincipal LoginUser loginUser) {
-        return Result.ok(orderQueryService.sellerOrders(loginUser));
+    public Result<List<OrderRowView>> list(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+            @RequestParam(required = false) Long scheduleId,
+            @RequestParam(required = false) String passengerName,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return Result.ok(orderQueryService.sellerOrders(loginUser, dateFrom, dateTo, scheduleId, passengerName));
     }
 
     /** 代售：passengerId 与 sellerId 都取登录售票员。 */
@@ -61,8 +69,9 @@ public class SellerOrderController {
 
     @PostMapping("/tickets/{ticketId}/refund")
     public Result<TicketView> refund(@PathVariable Long ticketId,
+                                     @RequestBody(required = false) OrderForms.RefundRequest form,
                                      @AuthenticationPrincipal LoginUser loginUser) {
-        var ticket = orderService.refundTicket(ticketId, loginUser);
+        var ticket = orderService.refundTicket(ticketId, form == null ? null : form.reason(), loginUser);
         return Result.ok("退票成功", TicketView.of(ticket));
     }
 

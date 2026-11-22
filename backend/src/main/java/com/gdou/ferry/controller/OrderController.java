@@ -2,6 +2,7 @@ package com.gdou.ferry.controller;
 
 import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.common.Result;
+import com.gdou.ferry.dto.OrderDetailView;
 import com.gdou.ferry.dto.OrderForms;
 import com.gdou.ferry.dto.OrderRowView;
 import com.gdou.ferry.dto.OrderView;
@@ -37,6 +38,13 @@ public class OrderController {
     @GetMapping("/mine")
     public Result<List<OrderRowView>> mine(@AuthenticationPrincipal LoginUser loginUser) {
         return Result.ok(orderQueryService.myOrders(loginUser.getId()));
+    }
+
+    /** 订单详情，三端共用；乘客只能看自己的，售票员/管理员可看任意订单。 */
+    @GetMapping("/{id}")
+    public Result<OrderDetailView> detail(@PathVariable Long id,
+                                          @AuthenticationPrincipal LoginUser loginUser) {
+        return Result.ok(orderQueryService.detail(id, loginUser));
     }
 
     /** 乘客自购：passengerId 取登录人，sellerId 留空。 */

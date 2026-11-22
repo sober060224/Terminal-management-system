@@ -3,6 +3,7 @@ package com.gdou.ferry.service;
 import com.gdou.ferry.common.BizException;
 import com.gdou.ferry.common.ErrorCodes;
 import com.gdou.ferry.common.FareRules;
+import com.gdou.ferry.common.IdCards;
 import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.dto.OrderForms;
 import com.gdou.ferry.entity.Orders;
@@ -53,6 +54,9 @@ public class OrderService {
     /** 有效票 = 仍占用订单金额的票；已退票、已取消、待支付都不算。 */
     private static final List<String> ACTIVE_TICKET_STATUSES = List.of("已支付", "已检票");
 
+    /** 退票原因预设（接口只接受这四项，不传记「乘客退票」，保持旧调用方可用）。 */
+    private static final Set<String> REFUND_REASONS = Set.of("行程变更", "重复购票", "误购", "其他");
+
     /** 订单支付时限（分钟），超时未支付由定时任务释放座位。 */
     @Value("${ferry.order-pay-minutes:15}")
     private long orderPayMinutes;
@@ -80,6 +84,10 @@ public class OrderService {
         if (!"售票中".equals(schedule.getStatus())) {
             throw new BizException("班次不在售票中，无法下单", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
+        // 已发船的班次不允许再下单（班次状态流转属模块四，这里只做读侧校验）
+        if (!schedule.getDepartTime().isAfter(LocalDateTime.now(clock))) {
+            throw new BizException("班次已发船，无法下单", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
 
         Set<String> seatNos = new HashSet<>();
         Set<String> idCards = new HashSet<>();
@@ -88,6 +96,7 @@ public class OrderService {
                 throw new BizException("座位号重复：" + seat.seatNo(),
                         HttpStatus.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR);
             }
+            IdCards.require(seat.idCard());
             if (!idCards.add(seat.idCard())) {
                 throw new BizException("同一订单内乘船人身份证号不能重复",
                         HttpStatus.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR);
@@ -125,6 +134,7 @@ public class OrderService {
             ticket.setSeatId(entity.getId());
             ticket.setPassengerName(seat.passengerName());
             ticket.setIdCard(seat.idCard());
+            ticket.setPhone(seat.phone());
             ticket.setPrice(schedule.getPrice());
             ticket.setStatus("待支付");
             ticketRepository.save(ticket);
@@ -189,7 +199,7 @@ public class OrderService {
         for (Ticket ticket : ticketRepository.findByOrderIdOrderByIdAsc(orderId)) {
             ticket.setStatus("已取消");
             ticketRepository.save(ticket);
-            releaseSeat(ticket.getSeatId());
+            releaseSeat(ticket.getSeatId(), orderId);
         }
         return true;
     }
@@ -199,7 +209,7 @@ public class OrderService {
      * 发船后由 FareRules 抛 CONFLICT，接口拒绝、不落退票流水。
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public Ticket refundTicket(Long ticketId, LoginUser loginUser) {
+    public Ticket refundTicket(Long ticketId, String reason, LoginUser loginUser) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BizException("船票不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
         // 手续费基准是票所属班次，不是订单初次下单的班次（改签后两者会分叉，ADR-0002）
@@ -213,14 +223,15 @@ public class OrderService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         BigDecimal refund = FareRules.refundable(ticket.getPrice(), schedule.getDepartTime(), now);
-        if (ticketRepository.markRefunded(ticket.getId(), refund, "乘客退票", now) == 0) {
+        String reasonText = normalizeRefundReason(reason);
+        if (ticketRepository.markRefunded(ticket.getId(), refund, reasonText, now) == 0) {
             throw new BizException("只有已支付的船票可以退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
 
         // 锁顺序：班次 → 订单行 → 座位 → 票；订单行必须在班次之后取，改签与退票才不会互锁（ADR-0002）
-        releaseSeat(ticket.getSeatId());
+        releaseSeat(ticket.getSeatId(), order.getId());
         ticket.setRefundAmount(refund);
-        ticket.setRefundReason("乘客退票");
+        ticket.setRefundReason(reasonText);
         ticket.setRefundTime(now);
         ticket.setStatus("已退票");
 
@@ -292,7 +303,7 @@ public class OrderService {
         ticket.setRefundReason("改签");
         ticket.setRefundTime(now);
         ticket.setStatus("已退票");
-        releaseSeat(ticket.getSeatId());
+        releaseSeat(ticket.getSeatId(), order.getId());
 
         // 订单总额改为新票合计（实收口径：+差价或 −差额）；新票仍是已支付，订单状态不跟着变
         order.setTotalAmount(order.getTotalAmount().add(diff));
@@ -312,6 +323,7 @@ public class OrderService {
         newTicket.setSeatId(targetSeatId);
         newTicket.setPassengerName(ticket.getPassengerName());
         newTicket.setIdCard(ticket.getIdCard());
+            newTicket.setPhone(ticket.getPhone());
         newTicket.setPrice(target.getPrice());
         newTicket.setStatus("已支付");
         newTicket.setChangedFromTicketId(ticket.getId());
@@ -333,7 +345,7 @@ public class OrderService {
     /**
      * 乘客只能操作自己的订单；售票员/管理员可代操作任意订单。
      */
-    private void checkOrderPermission(Orders order, LoginUser loginUser) {
+    static void checkOrderPermission(Orders order, LoginUser loginUser) {
         Role role = loginUser.getRole();
         if (role == Role.ADMIN || role == Role.SELLER) {
             return;
@@ -353,12 +365,25 @@ public class OrderService {
         }
     }
 
-    private void releaseSeat(Long seatId) {
-        seatRepository.findById(seatId).ifPresent(seat -> {
-            seat.setSeatStatus("可选");
-            seat.setLockUntil(null);
-            seat.setOrderId(null);
-            seatRepository.save(seat);
-        });
+    /**
+     * 释放座位，只清「属于该订单」的锁。座位可能已经被别的订单抢走（原订单超时后、
+     * 清理任务还没跑到它的空档），无条件清空会把新订单的座位一起改成可选。
+     *
+     * @return 有座位被本次释放返回 true；座位已不属于该订单（或座位不存在）返回 false
+     */
+    private boolean releaseSeat(Long seatId, Long orderId) {
+        return seatRepository.releaseByOrder(seatId, orderId) > 0;
+    }
+
+    private String normalizeRefundReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "乘客退票";
+        }
+        String trimmed = reason.trim();
+        if (!REFUND_REASONS.contains(trimmed)) {
+            throw new BizException("退票原因不合法：" + trimmed,
+                    HttpStatus.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR);
+        }
+        return trimmed;
     }
 }

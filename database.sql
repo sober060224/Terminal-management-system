@@ -108,6 +108,7 @@ CREATE TABLE ticket (
     seat_id BIGINT NOT NULL,
     passenger_name VARCHAR(50) NOT NULL COMMENT '乘客姓名',
     id_card VARCHAR(18) NOT NULL COMMENT '乘客身份证',
+    phone VARCHAR(20) NOT NULL COMMENT '乘客手机号',
     price DECIMAL(10,2) NOT NULL COMMENT '该票票价',
     status ENUM('待支付', '已支付', '已检票', '已完成', '已取消', '已退票') NOT NULL DEFAULT '待支付',
     refund_amount DECIMAL(10,2) NULL COMMENT '实退现金（改签补差价记 0，退差额记差额）',
@@ -185,11 +186,12 @@ SELECT
     (SELECT COUNT(*)
        FROM ticket t JOIN orders o2 ON o2.id = t.order_id
       WHERE o2.seller_id = u.id
-        AND t.status IN ('已支付', '已检票', '已完成')) AS total_tickets,
+        AND t.status IN ('已支付', '已检票', '已完成', '已退票')) AS total_tickets,
     (SELECT COALESCE(SUM(o3.total_amount), 0)
        FROM orders o3
       WHERE o3.seller_id = u.id
-        AND o3.status IN ('已支付', '已检票', '已完成')) AS total_revenue
+        AND o3.pay_time IS NOT NULL
+        AND o3.status <> '已取消') AS total_revenue
 FROM user u
 WHERE u.role = 'SELLER';
 
@@ -315,12 +317,13 @@ INSERT INTO ship (ship_name, total_seats, ship_type, status) VALUES
 ('粤澳01', 80, '豪华船', '正常');
 
 -- 班次（插入后触发器自动生成座位）
+-- 时刻用相对 NOW() 的日期，否则演示数据过一天就全部过期、列表为空
 INSERT INTO schedule (route_id, ship_id, depart_time, arrive_time, price, total_seats, status) VALUES
-(1, 1, '2026-11-21 08:00:00', '2026-11-21 10:00:00', 150.00, 120, '售票中'),
-(1, 1, '2026-11-21 14:00:00', '2026-11-21 16:00:00', 150.00, 120, '售票中'),
-(2, 3, '2026-11-21 09:00:00', '2026-11-21 10:30:00', 200.00, 80, '售票中'),
-(2, 3, '2026-11-21 15:00:00', '2026-11-21 16:30:00', 200.00, 80, '售票中'),
-(3, 2, '2026-11-22 07:00:00', '2026-11-22 09:30:00', 120.00, 100, '售票中');
+(1, 1, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '08:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '10:00:00'), 150.00, 120, '售票中'),
+(1, 1, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '14:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '16:00:00'), 150.00, 120, '售票中'),
+(2, 3, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '09:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '10:30:00'), 200.00, 80, '售票中'),
+(2, 3, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '15:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '16:30:00'), 200.00, 80, '售票中'),
+(3, 2, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '07:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '09:30:00'), 120.00, 100, '售票中');
 
 -- ====================
 -- 6. 验证

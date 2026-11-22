@@ -1,8 +1,6 @@
 package com.gdou.ferry.dto;
 
 import com.gdou.ferry.entity.Orders;
-import com.gdou.ferry.entity.Ticket;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -21,10 +19,9 @@ public record OrderRowView(
         List<TicketView> tickets,
         Long routeId) {
 
-    public static OrderRowView of(Orders order, List<Ticket> tickets, Long routeId) {
+    public static OrderRowView of(Orders order, List<TicketView> tickets, Long routeId) {
         return new OrderRowView(order.getId(), order.getScheduleId(), order.getPassengerId(),
                 order.getSellerId(), order.getTotalAmount(), order.getStatus(), order.getPayTime(),
-                order.getExpireAt(), order.getCreateTime(),
-                tickets.stream().map(TicketView::of).toList(), routeId);
+                order.getExpireAt(), order.getCreateTime(), tickets, routeId);
     }
 }

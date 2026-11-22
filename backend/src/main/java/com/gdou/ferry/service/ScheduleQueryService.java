@@ -46,7 +46,11 @@ public class ScheduleQueryService {
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listOnSale() {
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 已发船但状态还停在「售票中」的班次不该出现在列表里（班次状态流转属模块四，
+        // 这里只在读侧按发船时间过滤，下单入口还有一道同样的校验）
         return scheduleRepository.findByStatusOrderByDepartTimeAsc("售票中").stream()
+                .filter(schedule -> schedule.getDepartTime().isAfter(now))
                 .map(this::scheduleView)
                 .toList();
     }

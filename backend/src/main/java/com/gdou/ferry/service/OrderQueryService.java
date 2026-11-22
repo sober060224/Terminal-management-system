@@ -1,17 +1,29 @@
 package com.gdou.ferry.service;
 
+import com.gdou.ferry.common.BizException;
+import com.gdou.ferry.common.ErrorCodes;
 import com.gdou.ferry.common.LoginUser;
+import com.gdou.ferry.dto.OrderDetailView;
 import com.gdou.ferry.dto.OrderRowView;
+import com.gdou.ferry.dto.TicketView;
 import com.gdou.ferry.entity.Orders;
 import com.gdou.ferry.entity.Role;
+import com.gdou.ferry.entity.Route;
 import com.gdou.ferry.entity.Schedule;
+import com.gdou.ferry.entity.Seat;
+import com.gdou.ferry.entity.Ship;
 import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.repository.OrdersRepository;
+import com.gdou.ferry.repository.RouteRepository;
 import com.gdou.ferry.repository.ScheduleRepository;
+import com.gdou.ferry.repository.SeatRepository;
+import com.gdou.ferry.repository.ShipRepository;
 import com.gdou.ferry.repository.TicketRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,13 +38,22 @@ public class OrderQueryService {
     private final OrdersRepository ordersRepository;
     private final TicketRepository ticketRepository;
     private final ScheduleRepository scheduleRepository;
+    private final SeatRepository seatRepository;
+    private final RouteRepository routeRepository;
+    private final ShipRepository shipRepository;
 
     public OrderQueryService(OrdersRepository ordersRepository,
                              TicketRepository ticketRepository,
-                             ScheduleRepository scheduleRepository) {
+                             ScheduleRepository scheduleRepository,
+                             SeatRepository seatRepository,
+                             RouteRepository routeRepository,
+                             ShipRepository shipRepository) {
         this.ordersRepository = ordersRepository;
         this.ticketRepository = ticketRepository;
         this.scheduleRepository = scheduleRepository;
+        this.seatRepository = seatRepository;
+        this.routeRepository = routeRepository;
+        this.shipRepository = shipRepository;
     }
 
     @Transactional(readOnly = true)
@@ -44,11 +65,62 @@ public class OrderQueryService {
      * 售票员/管理员订单列表：管理员看全部，售票员看自己经手的。
      */
     @Transactional(readOnly = true)
-    public List<OrderRowView> sellerOrders(LoginUser loginUser) {
+    public List<OrderRowView> sellerOrders(LoginUser loginUser, LocalDate dateFrom, LocalDate dateTo,
+                                           Long scheduleId, String passengerName) {
         List<Orders> orders = loginUser.getRole() == Role.ADMIN
                 ? ordersRepository.findAll()
                 : ordersRepository.findBySellerIdOrderByCreateTimeDesc(loginUser.getId());
-        return views(orders);
+        return views(orders).stream()
+                .filter(view -> matches(view, dateFrom, dateTo, scheduleId, passengerName))
+                .toList();
+    }
+
+    /** 订单详情：班次挂了的话明细字段留空，订单本身仍然返回。 */
+    @Transactional(readOnly = true)
+    public OrderDetailView detail(Long orderId, LoginUser loginUser) {
+        Orders order = ordersRepository.findById(orderId)
+                .orElseThrow(() -> new BizException("订单不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
+        OrderService.checkOrderPermission(order, loginUser);
+        Schedule schedule = scheduleRepository.findById(order.getScheduleId()).orElse(null);
+        Route route = schedule == null ? null
+                : routeRepository.findById(schedule.getRouteId()).orElse(null);
+        Ship ship = schedule == null ? null
+                : shipRepository.findById(schedule.getShipId()).orElse(null);
+        List<Ticket> tickets = ticketRepository.findByOrderIdOrderByIdAsc(orderId);
+        Map<Long, String> seatNos = seatRepository
+                .findAllById(tickets.stream().map(Ticket::getSeatId).toList()).stream()
+                .collect(Collectors.toMap(Seat::getId, Seat::getSeatNo));
+        return new OrderDetailView(order.getId(), order.getScheduleId(), order.getPassengerId(),
+                order.getSellerId(), order.getTotalAmount(), order.getStatus(), order.getPayTime(),
+                order.getExpireAt(), order.getCreateTime(),
+                schedule == null ? null : schedule.getRouteId(),
+                route == null ? null : route.getRouteName(),
+                route == null ? null : route.getStartPort(),
+                route == null ? null : route.getEndPort(),
+                ship == null ? null : ship.getShipName(),
+                schedule == null ? null : schedule.getDepartTime(),
+                schedule == null ? null : schedule.getArriveTime(),
+                tickets.stream().map(t -> TicketView.of(t, seatNos.get(t.getSeatId()))).toList());
+    }
+
+    private boolean matches(OrderRowView view, LocalDate dateFrom, LocalDate dateTo,
+                            Long scheduleId, String passengerName) {
+        if (scheduleId != null && !scheduleId.equals(view.scheduleId())) {
+            return false;
+        }
+        if (view.createTime() != null) {
+            if (dateFrom != null && view.createTime().isBefore(dateFrom.atStartOfDay())) {
+                return false;
+            }
+            if (dateTo != null && !view.createTime().isBefore(dateTo.plusDays(1).atStartOfDay())) {
+                return false;
+            }
+        }
+        String name = passengerName == null ? null : passengerName.trim();
+        if (name != null && !name.isEmpty()) {
+            return view.tickets().stream().anyMatch(t -> t.passengerName().contains(name));
+        }
+        return true;
     }
 
     /** 订单视图补上 routeId，前端改签时据此筛「同航线」目标班次。 */
@@ -62,8 +134,14 @@ public class OrderQueryService {
         Map<Long, List<Ticket>> tickets = ticketRepository
                 .findByOrderIdInOrderByIdAsc(orders.stream().map(Orders::getId).toList())
                 .stream().collect(Collectors.groupingBy(Ticket::getOrderId));
+        Map<Long, String> seatNos = seatRepository
+                .findAllById(tickets.values().stream().flatMap(List::stream)
+                        .map(Ticket::getSeatId).distinct().toList())
+                .stream().collect(Collectors.toMap(Seat::getId, Seat::getSeatNo));
         return orders.stream()
-                .map(order -> OrderRowView.of(order, tickets.getOrDefault(order.getId(), List.of()),
+                .map(order -> OrderRowView.of(order,
+                        tickets.getOrDefault(order.getId(), List.of()).stream()
+                                .map(ticket -> TicketView.of(ticket, seatNos.get(ticket.getSeatId()))).toList(),
                         routeIdOf(schedules.get(order.getScheduleId()))))
                 .toList();
     }

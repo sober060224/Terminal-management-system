@@ -9,7 +9,10 @@ import com.gdou.ferry.entity.User;
 import com.gdou.ferry.entity.UserStatus;
 import com.gdou.ferry.dto.OrderRowView;
 import com.gdou.ferry.repository.OrdersRepository;
+import com.gdou.ferry.repository.RouteRepository;
 import com.gdou.ferry.repository.ScheduleRepository;
+import com.gdou.ferry.repository.SeatRepository;
+import com.gdou.ferry.repository.ShipRepository;
 import com.gdou.ferry.repository.TicketRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,12 +38,19 @@ class OrderQueryServiceTest {
     private TicketRepository ticketRepository;
     @Mock
     private ScheduleRepository scheduleRepository;
+    @Mock
+    private SeatRepository seatRepository;
+    @Mock
+    private RouteRepository routeRepository;
+    @Mock
+    private ShipRepository shipRepository;
 
     private OrderQueryService service;
 
     @BeforeEach
     void setUp() {
-        service = new OrderQueryService(ordersRepository, ticketRepository, scheduleRepository);
+        service = new OrderQueryService(ordersRepository, ticketRepository, scheduleRepository,
+                seatRepository, routeRepository, shipRepository);
     }
 
     @Test
@@ -71,7 +81,7 @@ class OrderQueryServiceTest {
     void 售票员只看自己经手的订单() {
         when(ordersRepository.findBySellerIdOrderByCreateTimeDesc(5L)).thenReturn(List.of());
 
-        assertTrue(service.sellerOrders(user(5L, Role.SELLER)).isEmpty());
+        assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, null, null).isEmpty());
 
         verify(ordersRepository).findBySellerIdOrderByCreateTimeDesc(5L);
         verify(ordersRepository, never()).findAll();

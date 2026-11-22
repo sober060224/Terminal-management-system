@@ -35,6 +35,9 @@ public class Ticket {
     @Column(name = "id_card", nullable = false, length = 18)
     private String idCard;
 
+    @Column(nullable = false, length = 20)
+    private String phone;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal price;
 

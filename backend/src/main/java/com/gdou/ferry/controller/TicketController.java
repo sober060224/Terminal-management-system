@@ -26,10 +26,12 @@ public class TicketController {
         this.orderService = orderService;
     }
 
+    /** 退票原因可选：不传按「乘客退票」处理，老调用方（不带 body）照旧可用。 */
     @PostMapping("/{id}/refund")
     public Result<TicketView> refund(@PathVariable Long id,
+                                     @RequestBody(required = false) OrderForms.RefundRequest form,
                                      @AuthenticationPrincipal LoginUser loginUser) {
-        var ticket = orderService.refundTicket(id, loginUser);
+        var ticket = orderService.refundTicket(id, form == null ? null : form.reason(), loginUser);
         return Result.ok("退票成功", TicketView.of(ticket));
     }
 
