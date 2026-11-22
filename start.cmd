@@ -14,9 +14,7 @@ if not errorlevel 1 set DB_PORT=3307
 if defined DB_PORT goto :db_ready
 
 echo [1/2] starting workspace MySQL on 3307 ...
-if not defined MYSQLD_BIN set "MYSQLD_BIN=D:\AAA_Software\MySQL\MySQL Server 8.0\bin\mysqld.exe"
-if not defined MYSQL_DATA_DIR set "MYSQL_DATA_DIR=%~dp0..\..\..\temporary\mysql-local\data"
-start "ferry-mysql" /min "%MYSQLD_BIN%" --datadir="%MYSQL_DATA_DIR%" --port=3307 --mysqlx=OFF --console
+REM FERRY_MYSQL_HOME overrides the default MySQL install; default kept for this machine.if not defined MYSQLD_BIN if defined FERRY_MYSQL_HOME set "MYSQLD_BIN=%FERRY_MYSQL_HOME%\bin\mysqld.exe"if not defined MYSQLD_BIN set "MYSQLD_BIN=D:\AAA_Software\MySQL\MySQL Server 8.0\bin\mysqld.exe"if not defined MYSQL_DATA_DIR set "MYSQL_DATA_DIR=%~dp0temporary\mysql-local\data"start "ferry-mysql" /min "%MYSQLD_BIN%" --datadir="%MYSQL_DATA_DIR%" --port=3307 --mysqlx=OFF --console
 set DB_PORT=3307
 ping -n 9 127.0.0.1 >nul
 

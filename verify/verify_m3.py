@@ -20,8 +20,30 @@ except Exception:
     pass
 
 BASE = os.environ.get("FERRY_BASE", "http://localhost:8089")
-STAMP = str(int(time.time() * 1000))[-9:]
-ID_PREFIX = "44010019900101"
+# m3-seed.sql 里固定 id 的已发船班次（列表接口会过滤掉它，只能写死）
+PAST_SCHEDULE_ID = 999901
+
+# 身份证必须带 GB 11643 校验位，后端会校验；序号每次不同，避免一人一票判重。
+_ID_SEQ = int(time.time() * 1000) % 100000
+ID_WEIGHTS = (7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2)
+ID_CHECK = "10X98765432"
+
+
+def next_id_card():
+    global _ID_SEQ
+    _ID_SEQ = (_ID_SEQ + 1) % 100000
+    body = "440100199001%05d" % _ID_SEQ
+    return body + ID_CHECK[sum(int(d) * w for d, w in zip(body, ID_WEIGHTS)) % 11]
+
+
+_PHONE_SEQ = int(time.time()) % 10000
+
+
+def next_phone():
+    """合法手机号：1[3-9] 开头共 11 位。"""
+    global _PHONE_SEQ
+    _PHONE_SEQ = (_PHONE_SEQ + 1) % 10000
+    return "138%08d" % _PHONE_SEQ
 
 failures = []
 
@@ -116,11 +138,13 @@ def free_seat(client, schedule_id):
     raise AssertionError(f"班次 {schedule_id} 没有可选座位")
 
 
-def create_and_pay(client, list_path, schedule_id, name, id_card, create_path="/api/orders"):
+def create_and_pay(client, list_path, schedule_id, name, id_card, create_path="/api/orders",
+                   phone=None):
+    phone = phone or next_phone()
     seat = free_seat(client, schedule_id)
     status, body = client.post(create_path, {
         "scheduleId": schedule_id,
-        "seats": [{"seatNo": seat["seatNo"], "passengerName": name, "idCard": id_card}],
+        "seats": [{"seatNo": seat["seatNo"], "passengerName": name, "idCard": id_card, "phone": phone}],
     })
     check(f"下单 {name} 200", status, 200)
     order_id = body["data"]["id"]
@@ -155,17 +179,15 @@ def pick_schedules(schedules):
                 and parse_time(s["departTime"]) > now + timedelta(hours=2))
     within = pick(lambda s: float(s["price"]) == 100.0
                   and now < parse_time(s["departTime"]) <= now + timedelta(hours=2))
-    past = pick(lambda s: float(s["price"]) == 100.0
-                and parse_time(s["departTime"]) <= now)
     rebook = pick(lambda s: float(s["price"]) == 120.0
                   and parse_time(s["departTime"]) > now + timedelta(hours=2))
     nearby = pick(lambda s: float(s["price"]) == 130.0
                   and now < parse_time(s["departTime"]) <= now + timedelta(hours=1))
-    for label, schedule in (("FULL", full), ("WITHIN", within), ("PAST", past), ("REBOOK", rebook),
+    for label, schedule in (("FULL", full), ("WITHIN", within), ("REBOOK", rebook),
                                    ("NEARBY", nearby)):
         if schedule is None:
             raise SystemExit(f"缺少测试班次 {label}，先运行 verify/m3-seed.sql")
-    return full, within, past, rebook, nearby
+    return full, within, rebook, nearby
 
 
 print("=== M3 端到端验收 base=%s ===" % BASE)
@@ -176,12 +198,12 @@ seller = login("seller1", "seller123")
 admin = login("admin", "admin123")
 
 schedules = list_schedules(passenger)
-full, within, past, rebook, nearby = pick_schedules(schedules)
-print(f"测试班次 id: FULL={full['id']} WITHIN={within['id']} PAST={past['id']} REBOOK={rebook['id']} NEARBY={nearby['id']}")
+full, within, rebook, nearby = pick_schedules(schedules)
+print(f"测试班次 id: FULL={full['id']} WITHIN={within['id']} REBOOK={rebook['id']} NEARBY={nearby['id']}")
 
 # --- 1. 全额退（>2h） ---
 print("\n[1] 距发船 >2h：全额退")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "全额退甲", ID_PREFIX + STAMP[-3:] + "1")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "全额退甲", next_id_card())
 order = find_order(passenger, "/api/orders/mine", oid)
 tid = order["tickets"][0]["id"]
 status, body = passenger.post(f"/api/tickets/{tid}/refund")
@@ -194,7 +216,7 @@ check("票状态 已退票", order["tickets"][0]["status"], "已退票")
 
 # --- 2. 距发船 <=2h：扣 20% ---
 print("\n[2] 距发船 <=2h：扣 20%")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", within["id"], "扣费乙", ID_PREFIX + STAMP[-3:] + "2")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", within["id"], "扣费乙", next_id_card())
 tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
 status, body = passenger.post(f"/api/tickets/{tid}/refund")
 check("退票 200", status, 200)
@@ -209,11 +231,15 @@ status, body = passenger.get_json(f"/api/schedules/{within['id']}/seats")
 free = [s for s in body["data"]["seats"] if s["state"] == "可选"]
 assert len(free) >= 2, free
 seats = [
-    {"seatNo": free[0]["seatNo"], "passengerName": "部分甲", "idCard": ID_PREFIX + STAMP[-3:] + "9"},
-    {"seatNo": free[1]["seatNo"], "passengerName": "部分乙", "idCard": ID_PREFIX + STAMP[-3:] + "0"},
+    {"seatNo": free[0]["seatNo"], "passengerName": "部分甲", "idCard": next_id_card(),
+     "phone": next_phone()},
+    {"seatNo": free[1]["seatNo"], "passengerName": "部分乙", "idCard": next_id_card(),
+     "phone": next_phone()},
 ]
 status, body = passenger.post("/api/orders", {"scheduleId": within["id"], "seats": seats})
 check("下单 两票 200", status, 200)
+if status != 200 or not body.get("data"):
+    raise SystemExit(f"[2b] 下单失败: {status} {body}")
 oid_part = body["data"]["id"]
 status, body = passenger.post(f"/api/orders/{oid_part}/pay")
 check("支付 两票 200", status, 200)
@@ -226,20 +252,20 @@ check("还有一张有效票 → 订单仍已支付", part["status"], "已支付
 check("退掉的那张 已退票", part["tickets"][0]["status"], "已退票")
 check("留下的那张 仍已支付", part["tickets"][1]["status"], "已支付")
 
-# --- 3. 发船后拒绝 ---
-print("\n[3] 发船后退票应被拒")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", past["id"], "过期丙", ID_PREFIX + STAMP[-3:] + "3")
-tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
-status, body = passenger.post(f"/api/tickets/{tid}/refund")
-check("发船后退票 409", status, 409)
-check("错误提示含 发船后", "发船后" in str(body.get("message", "")), True)
-order = find_order(passenger, "/api/orders/mine", oid)
-close("拒绝后订单总额不变 100", order["totalAmount"], 100)
-check("拒绝后票仍为 已支付", order["tickets"][0]["status"], "已支付")
+# --- 3. 发船班次不在列表 + 下单被拒 ---
+print("\n[3] 发船班次不出现在列表，且不能下单")
+check("发船班次不在列表", any(s["id"] == PAST_SCHEDULE_ID for s in schedules), False)
+status, body = passenger.post("/api/orders", {
+    "scheduleId": PAST_SCHEDULE_ID,
+    "seats": [{"seatNo": "1A", "passengerName": "过期丙", "idCard": next_id_card(),
+    "phone": next_phone()}],
+})
+check("已发船班次下单 409", status, 409)
+check("错误提示含 班次已发船", "班次已发船" in str(body.get("message", "")), True)
 
 # --- 4. 改签补差价（100 → 120） ---
 print("\n[4] 改签补差价")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "改签丁", ID_PREFIX + STAMP[-3:] + "4")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "改签丁", next_id_card())
 order = find_order(passenger, "/api/orders/mine", oid)
 old_tid = order["tickets"][0]["id"]
 target = free_seat(passenger, rebook["id"])
@@ -259,7 +285,7 @@ close("补差价时原票实退现金 0", old["refundAmount"], 0)
 
 # --- 5. 改签退差额（120 → 100） ---
 print("\n[5] 改签退差额")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", rebook["id"], "改签戊", ID_PREFIX + STAMP[-3:] + "5")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", rebook["id"], "改签戊", next_id_card())
 order = find_order(passenger, "/api/orders/mine", oid)
 old_tid = order["tickets"][0]["id"]
 target = free_seat(passenger, full["id"])
@@ -274,7 +300,7 @@ check("原票退票原因 改签", old["refundReason"], "改签")
 
 # --- 6. 改签限同航线 ---
 print("\n[6] 改签限同航线")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "跨线己", ID_PREFIX + STAMP[-3:] + "6")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "跨线己", next_id_card())
 tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
 cross_route = [s for s in schedules if s["routeId"] != 1 and s["id"] != rebook["id"]]
 if cross_route:
@@ -292,7 +318,7 @@ check("错误提示含 自己的订单", "自己的订单" in str(body.get("mess
 # --- 8. 售票员代售 + 代退 ---
 print("\n[8] 售票员代售 / 代退")
 oid, _ = create_and_pay(seller, "/api/seller/orders", full["id"], "代售庚",
-                        ID_PREFIX + STAMP[-3:] + "7", "/api/seller/orders")
+        next_id_card(), "/api/seller/orders")
 order = find_order(seller, "/api/seller/orders", oid)
 check("代售订单 passengerId = 售票员", order["passengerId"] is not None, True)
 tid = order["tickets"][0]["id"]
@@ -313,7 +339,7 @@ check("已退票再退 409", status, 409)
 
 # --- 11. 改签后再退票：手续费按新班次算（缺陷 #4 回归） ---
 print("\n[11] 改签后退票按新班次算手续费")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "改后再退辛", ID_PREFIX + STAMP[-3:] + "8")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "改后再退辛", next_id_card())
 order = find_order(passenger, "/api/orders/mine", oid)
 tid = order["tickets"][0]["id"]
 target = free_seat(passenger, within["id"])
@@ -330,7 +356,7 @@ check("没有有效票 → 订单已退票（不看金额归零）", order["stat
 
 # --- 12. 原班次距发船不足 1 小时不能改签 ---
 print("\n[12] 原班次距发船不足 1 小时不能改签")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", nearby["id"], "近班壬", ID_PREFIX + STAMP[-3:] + "9")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", nearby["id"], "近班壬", next_id_card())
 tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
 target = free_seat(passenger, full["id"])
 status, body = passenger.post(f"/api/tickets/{tid}/rebook",
@@ -340,7 +366,7 @@ check("错误提示含 1 小时", "1 小时" in str(body.get("message", "")), Tr
 
 # --- 13. 目标班次距发船不足 1 小时不能改签 ---
 print("\n[13] 目标班次距发船不足 1 小时不能改签")
-oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "近目标癸", ID_PREFIX + STAMP[-3:] + "0")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "近目标癸", next_id_card())
 tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
 target = free_seat(passenger, nearby["id"])
 status, body = passenger.post(f"/api/tickets/{tid}/rebook",

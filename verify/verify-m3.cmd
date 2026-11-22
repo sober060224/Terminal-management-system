@@ -1,10 +1,10 @@
 @echo off
 REM M3 API acceptance: seed relative-time schedules, then run Python assertions.
-REM Needs: mysql client (MYSQL_BIN), DB_PASSWORD, server on DB_PORT, backend on 8089.
-REM Usage: verify\verify-m3.cmd ; log saved to temporary\dbpractice-m3\.
+REM Needs: mysql client (FERRY_MYSQL_BIN, else mysql on PATH), DB_PASSWORD, server on DB_PORT, backend on 8089.
+REM Usage: verify\verify-m3.cmd ; log saved to verify\artifacts\.
 REM Keep comments ASCII: cmd.exe reads this file as GBK.
 setlocal
-set "DIR=%~dp0..\..\..\..\temporary\dbpractice-m3"
+set "DIR=%~dp0artifacts"
 set "LOG=%DIR%\verify-m3.log"
 if not exist "%DIR%" mkdir "%DIR%"
 
@@ -14,7 +14,20 @@ if not defined DB_PORT (
     findstr "0.0.0.0:3306 " "%TEMP%\ferry_net.txt" | findstr "LISTENING" >nul
     if not errorlevel 1 (set "DB_PORT=3306") else (set "DB_PORT=3307")
 )
-if not defined MYSQL_BIN set "MYSQL_BIN=D:\AAA_Software\MySQL\MySQL Server 8.0\bin\mysql.exe"
+
+REM mysql client: FERRY_MYSQL_BIN wins, else PATH lookup; fail with a Chinese hint.
+if defined FERRY_MYSQL_BIN goto :mysql_ready
+where mysql >nul 2>&1
+if errorlevel 1 (
+    echo 未找到 mysql 客户端，请把 MySQL bin 目录加入 PATH 或设置 FERRY_MYSQL_BIN
+    exit /b 1
+)
+set "MYSQL_BIN=mysql"
+goto :mysql_ok
+:mysql_ready
+set "MYSQL_BIN=%FERRY_MYSQL_BIN%"
+:mysql_ok
+
 set "OPTS=--protocol=TCP -h 127.0.0.1 -P %DB_PORT% -u root -p%DB_PASSWORD% --default-character-set=utf8mb4"
 
 echo using port %DB_PORT% > "%LOG%"
@@ -23,6 +36,8 @@ if errorlevel 1 set "CODE=1"
 if not defined CODE python "%~dp0verify_m3.py" >> "%LOG%" 2>&1
 if not defined CODE if errorlevel 1 set "CODE=1"
 if not defined CODE python "%~dp0concurrency_refund_m3.py" >> "%LOG%" 2>&1
+if not defined CODE if errorlevel 1 set "CODE=1"
+if not defined CODE "%MYSQL_BIN%" %OPTS% < "%~dp0m3_view_check.sql" >> "%LOG%" 2>&1
 if not defined CODE if errorlevel 1 set "CODE=1"
 type "%LOG%"
 exit /b %CODE%

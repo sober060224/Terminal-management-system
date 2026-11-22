@@ -57,20 +57,29 @@ Vite 把 `/api` 代理到 `http://localhost:8089`，同源所以 Cookie 和 CSRF
 ### 4. 验一验
 
 ```bash
-cd frontend && npm run test             # 22 个前端用例（store + 路由守卫 + CSRF 令牌 + 订单列表退款/改签）
-cd backend  && mvnw.cmd -B -o test     # 39 个后端用例（含退票手续费、改签窗口、订单结清判据）
+cd frontend && npm run test             # 前端用例，条数以命令输出为准
+cd backend  && mvnw.cmd -B -o test     # 后端用例，条数以命令输出为准（含退票手续费、改签窗口、订单结清判据）
 verify\verify-db.cmd                   # 干净库导入 database.sql 并自检（8表/3视图/2触发器/1存储过程/500座位）
 verify\verify-m0.cmd                   # 端到端接口验收：CSRF/注册/登录/鉴权/登出，全 assert
 verify\verify-api-doc.cmd              # docs/api.md 里的响应示例 vs 实测响应
 verify\verify-m0-browser.cmd           # 真实浏览器：三角色落点 + 登出换账号（需在 frontend 下跑 node e2e/m0-browser.mjs）
-verify\verify-m3.cmd                   # 模块三端到端 + 并发退票：退改签规则、部分退票、10 轮双线程并发
-verify\verify-m3-browser.cmd           # 真实浏览器：乘客端退票按钮真的发请求、改签候选不为空
+verify\verify-m3.cmd                   # 模块三端到端 + 并发：退改签规则、部分退票、双线程并发 + 退票/取消/改签三路并发 + 视图收入断言
+verify\verify-m3-browser.cmd           # 真实浏览器：先造 fixture 订单，再真正提交退票与改签并断言 HTTP 200
 python verify\concurrency_m3.py        # 模块三并发演示：50 线程抢同一座位 → 1 成功、49 个 409
 ```
 
 脚本要求后端已在 8089 运行、`database.sql` 已导入。浏览器脚本用本机
-Chrome（`C:/Program Files/Google/Chrome/Application/chrome.exe`），可用
-`CHROME_PATH` 覆盖，不需要额外下载 Chromium。
+Chrome / Edge，没设置 `FERRY_CHROME` 时用 Playwright 自带 Chromium。
+
+常用环境变量：
+
+| 变量 | 用途 | 默认 |
+|---|---|---|
+| `FERRY_MYSQL_BIN` | `mysql` 客户端完整路径 | PATH 里的 `mysql` |
+| `FERRY_CHROME` | 浏览器可执行文件完整路径 | Playwright 自带 Chromium |
+| `DB_PORT` | MySQL 端口 | 自动探测 3306 / 3307 |
+| `DB_PASSWORD` | MySQL root 密码 | 无（必填） |
+| `FERRY_BASE` | 后端地址 | `http://localhost:8089` |
 
 ## 演示账号
 

@@ -405,7 +405,7 @@ axios.defaults.xsrfHeaderName = 'X-XSRF-TOKEN';
 GET /api/schedules
 ```
 
-不带查询参数，只返回 `status='售票中'` 的班次，按发船时间升序。
+不带查询参数，只返回 `status='售票中'` 且 `depart_time` 晚于当前时间（未发船）的班次，按发船时间升序。
 
 **成功响应** (200)
 
@@ -492,12 +492,14 @@ Content-Type: application/json
 {
   "scheduleId": 10,
   "seats": [
-    { "seatNo": "A1", "passengerName": "张三", "idCard": "440100199001011234" }
+    { "seatNo": "A1", "passengerName": "张三", "idCard": "440100199001011234", "phone": "13800138000" }
   ]
 }
 ```
 
-- `seats` 至少 1 项；座位号不能重复；同一订单内乘船人身份证号不能重复。
+- `seats` 至少 1 项、最多 5 项；座位号不能重复；同一订单内乘船人身份证号不能重复。
+- 每个座位必须有 `phone`，11 位手机号，匹配 `^1[3-9]\d{9}$`；`idCard` 必须为 18 位且校验位合法。
+- 班次必须未发船；已发船返回 409 `班次已发船，无法下单`。
 - 下单即锁座，`expireAt` = 下单时间 + `ferry.order-pay-minutes`（默认 15 分钟）。
 - 成功返回 200，`message` 为 `下单成功`，`data` 为订单视图（见 7.3.4，不含 `tickets`）。
 
@@ -547,8 +549,10 @@ GET /api/orders/mine
           "orderId": 501,
           "scheduleId": 10,
           "seatId": 301,
+          "seatNo": "A1",
           "passengerName": "张三",
           "idCard": "440100199001011234",
+          "phone": "13800138000",
           "price": 100.00,
           "status": "已支付",
           "refundAmount": null,
@@ -566,7 +570,64 @@ GET /api/orders/mine
 
 订单视图字段：`id`、`scheduleId`、`routeId`、`passengerId`、`sellerId`、`totalAmount`、`status`、`payTime`、`expireAt`、`createTime`、`tickets[]`。
 
-票视图字段：`id`、`orderId`、`scheduleId`、`seatId`、`passengerName`、`idCard`、`price`、`status`、`refundAmount`、`refundReason`、`refundTime`、`changedFromTicketId`、`changedAt`。
+票视图字段：`id`、`orderId`、`scheduleId`、`seatId`、`seatNo`、`passengerName`、`idCard`、`phone`、`price`、`status`、`refundAmount`、`refundReason`、`refundTime`、`changedFromTicketId`、`changedAt`。
+
+#### 7.3.5 订单详情
+
+```http
+GET /api/orders/{id}
+```
+
+权限与订单一致：乘车人本人、经手售票员、管理员可看。比列表多返回班次与航线信息，方便页面直接展示。
+
+**成功响应** (200)
+
+```json
+{
+  "success": true,
+  "message": "操作成功",
+  "data": {
+    "id": 501,
+    "scheduleId": 10,
+    "routeId": 1,
+    "passengerId": 4,
+    "sellerId": null,
+    "totalAmount": 100.00,
+    "status": "已支付",
+    "payTime": "2026-11-21T15:00:00",
+    "expireAt": null,
+    "createTime": "2026-11-21T14:58:00",
+    "routeName": "广州-香港",
+    "startPort": "广州",
+    "endPort": "香港",
+    "shipName": "海洋一号",
+    "departTime": "2026-11-24T08:00:00",
+    "arriveTime": "2026-11-24T10:00:00",
+    "tickets": [
+      {
+        "id": 901,
+        "orderId": 501,
+        "scheduleId": 10,
+        "seatId": 301,
+        "seatNo": "A1",
+        "passengerName": "张三",
+        "idCard": "440100199001011234",
+        "phone": "13800138000",
+        "price": 100.00,
+        "status": "已支付",
+        "refundAmount": null,
+        "refundReason": null,
+        "refundTime": null,
+        "changedFromTicketId": null,
+        "changedAt": null
+      }
+    ]
+  },
+  "code": null
+}
+```
+
+订单不存在返回 404 `订单不存在`。
 
 ### 7.4 退票与改签
 
@@ -574,9 +635,14 @@ GET /api/orders/mine
 
 ```http
 POST /api/tickets/{id}/refund
+Content-Type: application/json
+
+{ "reason": "行程变更" }
 ```
 
-无请求体。按距发船时间分三档：
+请求体可选。`reason` 合法值只有 `行程变更`、`重复购票`、`误购`、`其他`，写入 `ticket.refund_reason`；不传或传空默认 `乘客退票`，非法值返回 400 `退票原因不合法：xxx`。售票员代退接口 `/api/seller/orders/tickets/{id}/refund` 同口径。
+
+按距发船时间分三档：
 
 | 距发船 | 实退金额 `refund_amount` |
 |---|---|
@@ -618,6 +684,15 @@ POST /api/seller/orders/tickets/{ticketId}/refund   代退，口径同 7.4.1
 POST /api/seller/orders/tickets/{ticketId}/rebook   代改签，口径同 7.4.2
 ```
 
+`GET /api/seller/orders` 支持四个可选 query 参数，同时传时按 AND 组合：
+
+| 参数 | 格式 | 说明 |
+|---|---|---|
+| `dateFrom` | `YYYY-MM-DD` | 下单日期下界（含） |
+| `dateTo` | `YYYY-MM-DD` | 下单日期上界（含） |
+| `scheduleId` | number | 只看某个班次 |
+| `passengerName` | string | 按乘船人姓名模糊匹配 |
+
 ### 7.6 前端页面与路由
 
 hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局下：
@@ -637,9 +712,9 @@ hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局
 
 | 错误码 | HTTP 状态码 | 典型 message |
 |---|---|---|
-| `CONFLICT` | 409 | 班次不在售票中，无法下单 / 座位号重复：A1 / 同一订单内乘船人身份证号不能重复 / 座位已被占用 / 座位已被他人锁定，请稍后重试 / 乘船人已购买本班次船票（一人一票） / 订单状态不允许支付 / 订单已超时，请重新下单 / 只有待支付订单可以取消 / 只有已支付的船票可以退票 / 只有已支付的船票可以改签 / 发船后不能退票 / 目标班次不在售票中 / 改签仅限同航线 / 距发船不足 1 小时，不能改签 / 目标班次距发船不足 1 小时，不能改签 / 目标座位与目标班次不匹配 / 乘船人已购买目标班次船票（一人一票） / 订单金额异常，改签失败 |
+| `CONFLICT` | 409 | 班次不在售票中，无法下单 / 班次已发船，无法下单 / 座位号重复：A1 / 同一订单内乘船人身份证号不能重复 / 座位已被占用 / 座位已被他人锁定，请稍后重试 / 乘船人已购买本班次船票（一人一票） / 订单状态不允许支付 / 订单已超时，请重新下单 / 只有待支付订单可以取消 / 只有已支付的船票可以退票 / 只有已支付的船票可以改签 / 发船后不能退票 / 目标班次不在售票中 / 改签仅限同航线 / 距发船不足 1 小时，不能改签 / 目标班次距发船不足 1 小时，不能改签 / 目标座位与目标班次不匹配 / 乘船人已购买目标班次船票（一人一票） / 订单金额异常，改签失败 |
 | `NOT_FOUND` | 404 | 班次不存在 / 座位不存在：A1 / 船票不存在 / 订单不存在 / 原班次不存在 / 目标座位不存在 |
-| `VALIDATION_ERROR` | 400 | 参数校验失败（`@Valid`，如身份证号必须为 18 位） |
+| `VALIDATION_ERROR` | 400 | 参数校验失败（`@Valid`，如身份证号必须为 18 位、手机号不合法、单订单超过 5 张票）/ 退票原因不合法：xxx |
 | `FORBIDDEN` | 403 | 只能操作自己的订单 |
 
 ---

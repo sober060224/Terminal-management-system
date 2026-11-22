@@ -17,6 +17,14 @@ import urllib.request
 BASE = os.environ.get("FERRY_BASE", "http://localhost:8089")
 THREADS = 50
 USER = ("passenger1", "123456")
+ID_WEIGHTS = (7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2)
+ID_CHECK = "10X98765432"
+
+
+def id_card(seq):
+    """GB 11643 校验位；seq 不同即身份证不同，避免一人一票判重。"""
+    body = "440100199001%05d" % seq
+    return body + ID_CHECK[sum(int(d) * w for d, w in zip(body, ID_WEIGHTS)) % 11]
 
 
 class Client:
@@ -82,7 +90,8 @@ def main():
             "seats": [{
                 "seatNo": free["seatNo"],
                 "passengerName": "并发%02d" % index,
-                "idCard": "440100199001%06d" % index,
+                "idCard": id_card(index),
+                "phone": "138%08d" % index,
             }],
         }
         barrier.wait()
