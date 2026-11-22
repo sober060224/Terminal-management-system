@@ -3,11 +3,14 @@
 // 需 FERRY_FIXTURE 指向 fixture JSON；Chrome 用 FERRY_CHROME，未设置用 Playwright 自带 Chromium。
 import { chromium } from 'playwright'
 import fs from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const BASE = process.env.FERRY_BASE || 'http://localhost:8089'
-// 相对脚本自身定位截图目录：frontend/e2e → 仓库根 → verify/artifacts/shots
-const SHOTS = fileURLToPath(new URL('../../verify/artifacts/shots', import.meta.url))
+// 截图目录：FERRY_ARTIFACTS（验收脚本会设），否则定位到工作区 temporary/dbpractice-m3/shots
+const SHOTS = process.env.FERRY_ARTIFACTS
+    ? path.join(process.env.FERRY_ARTIFACTS, 'shots')
+    : fileURLToPath(new URL('../../../../../temporary/dbpractice-m3/shots', import.meta.url))
 fs.mkdirSync(SHOTS, { recursive: true })
 
 const fixturePath = process.env.FERRY_FIXTURE

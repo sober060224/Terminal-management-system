@@ -5,7 +5,8 @@ REM Keep comments ASCII (cmd reads GBK).
 REM Usage: verify/verify-m3-browser.cmd
 REM Needs: backend on 8089, database.sql imported, npm install in frontend, python on PATH.
 setlocal
-set "DIR=%~dp0artifacts"
+if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\..\..\..\temporary\dbpractice-m3\"
+set "DIR=%FERRY_ARTIFACTS%"
 set "LOG=%DIR%\verify-m3-browser.log"
 set "FIXTURE=%DIR%\fixture.json"
 if not exist "%DIR%" mkdir "%DIR%"

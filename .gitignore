@@ -8,7 +8,6 @@ frontend/node_modules/
 backend/src/main/resources/static/
 
 temporary/
-verify/artifacts/
 
 # Python
 __pycache__/

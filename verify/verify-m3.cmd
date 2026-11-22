@@ -1,10 +1,11 @@
 @echo off
 REM M3 API acceptance: seed relative-time schedules, then run Python assertions.
 REM Needs: mysql client (FERRY_MYSQL_BIN, else mysql on PATH), DB_PASSWORD, server on DB_PORT, backend on 8089.
-REM Usage: verify\verify-m3.cmd ; log saved to verify\artifacts\.
+REM Usage: verify\verify-m3.cmd ; log saved to workspace temporary\dbpractice-m3\.
 REM Keep comments ASCII: cmd.exe reads this file as GBK.
 setlocal
-set "DIR=%~dp0artifacts"
+if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\..\..\..\temporary\dbpractice-m3\"
+set "DIR=%FERRY_ARTIFACTS%"
 set "LOG=%DIR%\verify-m3.log"
 if not exist "%DIR%" mkdir "%DIR%"
 
