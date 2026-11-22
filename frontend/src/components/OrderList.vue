@@ -66,8 +66,9 @@ async function refund(ticket) {
     }
 }
 
-function openRebook(ticket) {
-    rebookTicket.value = ticket
+function openRebook(ticket, order) {
+    // 票视图里没有 routeId，改签候选要靠订单级的 routeId 筛同航线，这里合并进去
+    rebookTicket.value = { ...ticket, routeId: order?.routeId }
     rebookVisible.value = true
 }
 
@@ -138,7 +139,7 @@ onMounted(load)
                             size="small"
                             type="primary"
                             link
-                            @click="openRebook(row)"
+                            @click="openRebook(row, o)"
                         >改签</el-button>
                     </template>
                 </el-table-column>

@@ -20,7 +20,7 @@ describe('user store', () => {
     })
 
     it('load() 会向服务端确认身份', async () => {
-        authApi.current.mockResolvedValue({ id: 1, username: 'admin', role: 'ADMIN' })
+        authApi.current.mockResolvedValue({ success: true, message: 'ok', data: { id: 1, username: 'admin', role: 'ADMIN' } })
         const store = useUserStore()
         await store.load()
         expect(store.isLogin).toBe(true)
@@ -47,14 +47,14 @@ describe('user store', () => {
         const store = useUserStore()
         await store.load()
         expect(store.checked).toBe(false)
-        authApi.current.mockResolvedValue({ id: 2, username: 'seller1', role: 'SELLER' })
+        authApi.current.mockResolvedValue({ success: true, message: 'ok', data: { id: 2, username: 'seller1', role: 'SELLER' } })
         await store.load()
         expect(store.isLogin).toBe(true)
     })
 
     it('登录失败会清掉旧快照', async () => {
         const store = useUserStore()
-        authApi.current.mockResolvedValue({ id: 1, username: 'admin', role: 'ADMIN' })
+        authApi.current.mockResolvedValue({ success: true, message: 'ok', data: { id: 1, username: 'admin', role: 'ADMIN' } })
         await store.load()
         expect(store.isLogin).toBe(true)
 
@@ -65,7 +65,7 @@ describe('user store', () => {
 
     it('clear() 让后续 load 不再空转', async () => {
         const store = useUserStore()
-        authApi.current.mockResolvedValue({ id: 1, username: 'admin', role: 'ADMIN' })
+        authApi.current.mockResolvedValue({ success: true, message: 'ok', data: { id: 1, username: 'admin', role: 'ADMIN' } })
         await store.load()
         store.clear()
         expect(store.loaded).toBe(false)

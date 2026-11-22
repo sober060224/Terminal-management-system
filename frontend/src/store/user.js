@@ -33,7 +33,7 @@ export const useUserStore = defineStore('user', {
                 return this.profile
             }
             try {
-                this.profile = await authApi.current()
+                this.profile = (await authApi.current()).data
                 this.loaded = true
             } catch (e) {
                 // 只有 401 是「确定未登录」，这个否定结果可以缓存（checked）；
@@ -47,7 +47,7 @@ export const useUserStore = defineStore('user', {
 
         async login(form) {
             try {
-                this.profile = await authApi.login(form)
+                this.profile = (await authApi.login(form)).data
                 this.loaded = true
                 this.checked = true
                 return this.profile

@@ -66,4 +66,24 @@ describe('CSRF 令牌拦截器', () => {
         await request.get('/auth/current')
         expect(calls).toEqual(['get /auth/current'])
     })
+    // 响应体原样返回：页面都按 res.data 取业务数据，这里提前拆掉 data 会让
+    // 所有列表读成 undefined，显示「暂无数据」。
+    it('成功响应原样返回统一响应体（页面按 res.data 取数据）', async () => {
+        const res = await request.get('/auth/csrf')
+        expect(res).toEqual({ success: true, message: '操作成功', data: { token: csrfToken, ready: true } })
+    })
+
+    it('业务失败按后端 message 拒绝，并带上状态码', async () => {
+        setCsrfCookie()
+        request.defaults.adapter = async (config) => ({
+            data: { success: false, message: '用户名已存在' },
+            status: 409,
+            statusText: 'Conflict',
+            headers: {},
+            config
+        })
+        const err = await request.post('/auth/register', {}).catch((e) => e)
+        expect(String(err)).toContain('用户名已存在')
+        expect(err.status).toBe(409)
+    })
 })
