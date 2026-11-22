@@ -57,13 +57,14 @@ Vite 把 `/api` 代理到 `http://localhost:8089`，同源所以 Cookie 和 CSRF
 ### 4. 验一验
 
 ```bash
-cd frontend && npm run test             # 21 个前端用例（store + 路由守卫 + CSRF 令牌 + 退票手续费）
-cd backend  && mvnw.cmd -B -o test     # 22 个后端用例
+cd frontend && npm run test             # 20 个前端用例（store + 路由守卫 + CSRF 令牌 + 订单列表退款/改签）
+cd backend  && mvnw.cmd -B -o test     # 39 个后端用例（含退票手续费、改签窗口、订单结清判据）
 verify\verify-db.cmd                   # 干净库导入 database.sql 并自检（8表/3视图/2触发器/1存储过程/500座位）
 verify\verify-m0.cmd                   # 端到端接口验收：CSRF/注册/登录/鉴权/登出，全 assert
 verify\verify-api-doc.cmd              # docs/api.md 里的响应示例 vs 实测响应
 verify\verify-m0-browser.cmd           # 真实浏览器：三角色落点 + 登出换账号（需在 frontend 下跑 node e2e/m0-browser.mjs）
-verify\verify-m3.cmd                   # 模块三端到端：退票三档 / 改签多退少补 / 代售代退 / 越权拒绝
+verify\verify-m3.cmd                   # 模块三端到端 + 并发退票：退改签规则、部分退票、10 轮双线程并发
+verify\verify-m3-browser.cmd           # 真实浏览器：乘客端退票按钮真的发请求、改签候选不为空
 python verify\concurrency_m3.py        # 模块三并发演示：50 线程抢同一座位 → 1 成功、49 个 409
 ```
 

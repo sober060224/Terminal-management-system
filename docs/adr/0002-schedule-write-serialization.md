@@ -4,6 +4,8 @@
 
 例外：支付、取消订单、超时清理只改本订单和它自己的票，不持班次锁，改用限定原状态的条件更新（`update orders set status='已支付' where id=? and status='待支付'`，按受影响行数判定成功与否）。退票/改签动票时同样用 `TicketRepository.markRefunded` 带上 `status='已支付'` 条件，重复提交只有一次能改到行。这样既不引入班次锁的排队，也不会出现"两个请求都读到待支付、都执行成功"。
 
+**订单行也要单独加锁**（2026-11 补）。退票和改签都会改 `orders.total_amount`，而班次锁挡不住"同一订单的两张票并发退"：两张票属于不同班次，两个事务锁的是不同班次，`markRefunded` 的条件更新也只覆盖 `ticket.status`，于是两边都读到同一个旧总额、各自减一次，后提交的把前者覆盖掉（丢失更新）。所以取锁顺序里补上订单行：`OrdersRepository.findByIdForUpdate`（`@Lock(PESSIMISTIC_WRITE)` + `select o from Orders o where o.id = :id`），在班次锁之后、动座位之前取一次，锁顺序固定为 **schedule → orders → seat → ticket**。加 `@Version` 也能挡住，但要配重试，理由同下面的 Considered Options：课程项目里是纯负担，行锁只有一句 SQL。
+
 ## Status
 
 已采纳。
