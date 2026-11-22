@@ -5,6 +5,7 @@
 --   WITHIN : +90 分钟，票价 100 —— 预计扣 20% 退 80
 --   PAST   : -1 小时，票价 100 —— 发船后退票应被拒
 --   REBOOK : +3 天 1 小时，票价 120 —— 改签目标（同航线，补差价 +20）
+--   NEARBY : +30 分钟，票价 130 —— 距发船不足 1 小时，改签窗口边界的靶子
 USE ferry_system;
 
 INSERT INTO schedule (route_id, ship_id, depart_time, arrive_time, price, total_seats, sold_seats, status)
@@ -16,4 +17,6 @@ VALUES
     (1, 1, NOW() - INTERVAL 1 HOUR,
             NOW() + INTERVAL 1 HOUR, 100.00, 32, 0, '售票中'),
     (1, 1, NOW() + INTERVAL 3 DAY + INTERVAL 1 HOUR,
-            NOW() + INTERVAL 3 DAY + INTERVAL 3 HOUR, 120.00, 32, 0, '售票中');
+            NOW() + INTERVAL 3 DAY + INTERVAL 3 HOUR, 120.00, 32, 0, '售票中'),
+    (1, 1, NOW() + INTERVAL 30 MINUTE,
+            NOW() + INTERVAL 2 HOUR + INTERVAL 30 MINUTE, 130.00, 32, 0, '售票中');

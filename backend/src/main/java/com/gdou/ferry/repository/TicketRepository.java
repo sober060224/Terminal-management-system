@@ -18,6 +18,9 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
     /** 订单列表用：一次取回多单的票，避免按单查询。 */
     List<Ticket> findByOrderIdInOrderByIdAsc(Collection<Long> orderIds);
 
+    /** 退票后判断这张单还有没有有效票（已退票、已取消的票不算）。 */
+    long countByOrderIdAndStatusIn(Long orderId, Collection<String> statuses);
+
     /**
      * 一人一票判重：该乘船人在该班次是否已有未作废（非已退票/已取消）的票。
      */

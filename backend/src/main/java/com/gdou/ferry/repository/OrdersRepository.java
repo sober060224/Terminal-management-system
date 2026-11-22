@@ -2,18 +2,28 @@ package com.gdou.ferry.repository;
 
 import com.gdou.ferry.entity.Orders;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface OrdersRepository extends JpaRepository<Orders, Long> {
 
     List<Orders> findByPassengerIdOrderByCreateTimeDesc(Long passengerId);
 
     List<Orders> findBySellerIdOrderByCreateTimeDesc(Long sellerId);
+
+    /**
+     * 退改签取订单行悲观锁：同一订单的两张票并发退时串行化，避免各自读到旧 total_amount 互相覆盖。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Orders o where o.id = :id")
+    Optional<Orders> findByIdForUpdate(@Param("id") Long id);
 
     /**
      * 状态迁移用条件更新：并发支付、取消、超时清理里只有一方能改到行，返回受影响行数。

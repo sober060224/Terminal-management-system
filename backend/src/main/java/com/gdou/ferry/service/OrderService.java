@@ -16,6 +16,7 @@ import com.gdou.ferry.repository.TicketRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -32,6 +33,10 @@ import java.util.Set;
  * 金额口径（PLAN.md D7 / ADR-0004 修订）：
  * orders.total_amount = 该订单当前实收/应收金额：支付时写入票面合计，退票时递减实退额，
  * 改签时改为新票合计；统计收入直接 SUM(orders.total_amount)。
+ *
+ * 隔离级别用 READ_COMMITTED：并发靠的是显式行锁（班次 + 订单行），而 MySQL 默认的
+ * REPEATABLE READ 会让加锁之后的普通 SELECT 继续读事务开始时的旧快照——锁拿到了、
+ * 值还是旧的，等于没锁（并发退票演示里抓到过总额丢失更新）。
  */
 @Service
 public class OrderService {
@@ -41,6 +46,12 @@ public class OrderService {
     private final TicketRepository ticketRepository;
     private final ScheduleLock scheduleLock;
     private final Clock clock;
+
+    /** 改签窗口：原班次与目标班次都必须在发船前 1 小时以上。 */
+    private static final int REBOOK_MINUTES_BEFORE_DEPARTURE = 60;
+
+    /** 有效票 = 仍占用订单金额的票；已退票、已取消、待支付都不算。 */
+    private static final List<String> ACTIVE_TICKET_STATUSES = List.of("已支付", "已检票");
 
     /** 订单支付时限（分钟），超时未支付由定时任务释放座位。 */
     @Value("${ferry.order-pay-minutes:15}")
@@ -62,7 +73,7 @@ public class OrderService {
      * 创建订单：锁班次 → 锁座 → 生成待支付订单与票。
      * passengerId：乘客自购传自己；代售传售票员本人（真实乘船人写在票上）。
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Orders createOrder(Long scheduleId, Long passengerId, Long sellerId,
                               List<OrderForms.SeatRequest> seats) {
         Schedule schedule = scheduleLock.lock(scheduleId);
@@ -124,7 +135,7 @@ public class OrderService {
     /**
      * 支付订单：待支付 → 已支付，座位转已售，票转已支付。
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Orders payOrder(Long orderId, LoginUser loginUser) {
         Orders order = loadOrder(orderId);
         checkOrderPermission(order, loginUser);
@@ -156,7 +167,7 @@ public class OrderService {
     /**
      * 取消未支付订单：释放座位，订单与票置已取消。
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Orders cancelOrder(Long orderId, LoginUser loginUser) {
         Orders order = loadOrder(orderId);
         checkOrderPermission(order, loginUser);
@@ -187,32 +198,36 @@ public class OrderService {
      * 票级部分退票：按实退金额递减订单总额，释放座位。
      * 发船后由 FareRules 抛 CONFLICT，接口拒绝、不落退票流水。
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Ticket refundTicket(Long ticketId, LoginUser loginUser) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BizException("船票不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
-        Orders order = loadOrder(ticket.getOrderId());
+        // 手续费基准是票所属班次，不是订单初次下单的班次（改签后两者会分叉，ADR-0002）
+        Schedule schedule = scheduleLock.lock(ticket.getScheduleId());
+        // 订单行悲观锁：必须先锁再读。先读订单再 lock 的话，同一个持久化上下文里
+        // Hibernate 会把旧实例原样交回来（行锁照拿、值是旧的），等于没锁
+        Orders order = lockOrder(ticket.getOrderId());
         checkOrderPermission(order, loginUser);
         if (!"已支付".equals(ticket.getStatus())) {
             throw new BizException("只有已支付的船票可以退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-
-        Schedule schedule = scheduleLock.lock(order.getScheduleId());
         LocalDateTime now = LocalDateTime.now(clock);
         BigDecimal refund = FareRules.refundable(ticket.getPrice(), schedule.getDepartTime(), now);
         if (ticketRepository.markRefunded(ticket.getId(), refund, "乘客退票", now) == 0) {
             throw new BizException("只有已支付的船票可以退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
 
-        // 锁顺序 schedule → seat → orders → ticket（ADR-0002）
+        // 锁顺序：班次 → 订单行 → 座位 → 票；订单行必须在班次之后取，改签与退票才不会互锁（ADR-0002）
         releaseSeat(ticket.getSeatId());
         ticket.setRefundAmount(refund);
         ticket.setRefundReason("乘客退票");
         ticket.setRefundTime(now);
         ticket.setStatus("已退票");
 
+        // 退票减的是实退现金，手续费留在 total_amount 里（它就是实收现金净额），
+        // 所以「单已结清」不看金额归零，只看这张单还有没有有效票。
         order.setTotalAmount(order.getTotalAmount().subtract(refund));
-        if (order.getTotalAmount().compareTo(BigDecimal.ZERO) == 0) {
+        if (ticketRepository.countByOrderIdAndStatusIn(order.getId(), ACTIVE_TICKET_STATUSES) == 0) {
             order.setStatus("已退票");
         }
         ordersRepository.save(order);
@@ -223,25 +238,35 @@ public class OrderService {
      * 改签（多退少补，限同航线）：原票置已退票（refund_reason=改签，refund_amount 只记实际退回的现金），
      * 新票挂改签链（changed_from_ticket_id 指回原票），订单总额改为新票合计。
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Ticket rebookTicket(Long ticketId, Long targetScheduleId, Long targetSeatId, LoginUser loginUser) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BizException("船票不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
-        Orders order = loadOrder(ticket.getOrderId());
+        // 改签同时写原班次和目标班次，两个班次一起锁（按 id 升序），避免互相改签时死锁
+        Map<Long, Schedule> locked = scheduleLock.lockAll(ticket.getScheduleId(), targetScheduleId);
+        // 订单行悲观锁：先锁再读，理由同 refundTicket
+        Orders order = lockOrder(ticket.getOrderId());
         checkOrderPermission(order, loginUser);
         if (!"已支付".equals(ticket.getStatus()) || !"已支付".equals(order.getStatus())) {
             throw new BizException("只有已支付的船票可以改签", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-
-        // 改签同时写原班次和目标班次，两个班次一起锁（按 id 升序），避免互相改签时死锁
-        Map<Long, Schedule> locked = scheduleLock.lockAll(ticket.getScheduleId(), targetScheduleId);
         Schedule origin = locked.get(ticket.getScheduleId());
         Schedule target = locked.get(targetScheduleId);
+        LocalDateTime now = LocalDateTime.now(clock);
+        // 校验顺序：先看目标班次能不能用、是不是同航线，再看时间窗口，
+        // 这样「改到别的航线」这类请求报的是航线错误而不是时间错误。
         if (!"售票中".equals(target.getStatus())) {
             throw new BizException("目标班次不在售票中", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
         if (!origin.getRouteId().equals(target.getRouteId())) {
             throw new BizException("改签仅限同航线", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
+        // 改签窗口：原班次与目标班次都要在发船前 1 小时以上；允许改到更早的班次
+        if (!origin.getDepartTime().isAfter(now.plusMinutes(REBOOK_MINUTES_BEFORE_DEPARTURE))) {
+            throw new BizException("距发船不足 1 小时，不能改签", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
+        if (!target.getDepartTime().isAfter(now.plusMinutes(REBOOK_MINUTES_BEFORE_DEPARTURE))) {
+            throw new BizException("目标班次距发船不足 1 小时，不能改签", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
 
         Seat targetSeat = seatRepository.findById(targetSeatId)
@@ -250,7 +275,6 @@ public class OrderService {
             throw new BizException("目标座位与目标班次不匹配",
                     HttpStatus.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR);
         }
-        LocalDateTime now = LocalDateTime.now(clock);
         checkSeatFree(targetSeat, now);
         if (ticketRepository.existsActiveTicket(ticket.getIdCard(), targetScheduleId)) {
             throw new BizException("乘船人已购买目标班次船票（一人一票）",
@@ -297,6 +321,12 @@ public class OrderService {
 
     private Orders loadOrder(Long orderId) {
         return ordersRepository.findById(orderId)
+                .orElseThrow(() -> new BizException("订单不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
+    }
+
+    /** 退改签取订单行锁并重新加载：保证后面基于最新的 total_amount 做加减。 */
+    private Orders lockOrder(Long orderId) {
+        return ordersRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new BizException("订单不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
     }
 

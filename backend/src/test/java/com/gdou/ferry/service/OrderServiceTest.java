@@ -21,7 +21,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
@@ -30,6 +29,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -76,19 +76,87 @@ class OrderServiceTest {
         Seat seat = new Seat();
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
-        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
         when(scheduleLock.lock(1L)).thenReturn(schedule(FIXED_NOW.plusHours(1)));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
         when(seatRepository.findById(anyLong())).thenReturn(Optional.of(seat));
+        // 同一张单还有一张有效票，所以订单不能置「已退票」
+        when(ticketRepository.countByOrderIdAndStatusIn(anyLong(), any())).thenReturn(1L);
 
         Ticket refunded = service.refundTicket(10L, passenger);
 
         assertEquals("已退票", refunded.getStatus());
         assertEquals(0, new BigDecimal("80.00").compareTo(refunded.getRefundAmount()));
         assertEquals(0, new BigDecimal("70.00").compareTo(order.getTotalAmount()));
+        assertEquals("已支付", order.getStatus());
         assertEquals(FIXED_NOW, refunded.getRefundTime());
         assertEquals("可选", seat.getSeatStatus());
         assertNull(seat.getOrderId());
+    }
+
+    @Test
+    void 最后一张有效票退掉后订单变已退票() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(scheduleLock.lock(1L)).thenReturn(schedule(FIXED_NOW.plusHours(5)));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
+        when(seatRepository.findById(anyLong())).thenReturn(Optional.of(new Seat()));
+        when(ticketRepository.countByOrderIdAndStatusIn(anyLong(), any())).thenReturn(0L);
+
+        service.refundTicket(10L, passenger);
+
+        // 全额退：总额归零，判据仍走有效票计数而不是金额
+        assertEquals(0, new BigDecimal("0.00").compareTo(order.getTotalAmount()));
+        assertEquals("已退票", order.getStatus());
+    }
+
+    @Test
+    void 两张票都按手续费退掉后订单也变已退票() {
+        Orders order = order(1L, 99L, new BigDecimal("200.00"));
+        Ticket first = ticket(10L, 1L, new BigDecimal("100.00"));
+        Ticket second = ticket(11L, 1L, new BigDecimal("100.00"));
+        second.setSeatId(12L);
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(first));
+        when(ticketRepository.findById(11L)).thenReturn(Optional.of(second));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(scheduleLock.lock(1L)).thenReturn(schedule(FIXED_NOW.plusHours(1)));
+        when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
+        when(seatRepository.findById(anyLong())).thenReturn(Optional.of(new Seat()));
+        when(ticketRepository.countByOrderIdAndStatusIn(anyLong(), any())).thenReturn(1L, 0L);
+
+        service.refundTicket(10L, passenger);
+        // 每张退 80（扣 20%），总额 200 → 120，还有一张有效票所以仍是已支付
+        assertEquals(0, new BigDecimal("120.00").compareTo(order.getTotalAmount()));
+        assertEquals("已支付", order.getStatus());
+
+        service.refundTicket(11L, passenger);
+        assertEquals(0, new BigDecimal("40.00").compareTo(order.getTotalAmount()));
+        assertEquals("已退票", order.getStatus());
+    }
+
+    @Test
+    void 改签后退票按票所属班次算手续费() {
+        // 订单初次下单的班次是 1L（5 小时后发船，全额退）；票已改签到 2L（1.5 小时后，扣 20%）
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+        ticket.setScheduleId(2L);
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(scheduleLock.lock(2L)).thenReturn(schedule(FIXED_NOW.plusMinutes(90)));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
+        when(seatRepository.findById(anyLong())).thenReturn(Optional.of(new Seat()));
+        when(ticketRepository.countByOrderIdAndStatusIn(anyLong(), any())).thenReturn(0L);
+
+        Ticket refunded = service.refundTicket(10L, passenger);
+
+        // 锁错了班次会按 1L 全额退 100
+        assertEquals(0, new BigDecimal("80.00").compareTo(refunded.getRefundAmount()));
+        assertEquals(0, new BigDecimal("20.00").compareTo(order.getTotalAmount()));
     }
 
     @Test
@@ -97,8 +165,8 @@ class OrderServiceTest {
         Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
-        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
         when(scheduleLock.lock(1L)).thenReturn(schedule(FIXED_NOW.plusHours(1)));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(0);
 
         assertThrows(BizException.class, () -> service.refundTicket(10L, passenger));
@@ -165,12 +233,79 @@ class OrderServiceTest {
     }
 
     @Test
+    void 原班次距发船不足一小时不能改签() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+        Schedule origin = schedule(FIXED_NOW.plusMinutes(30));
+        origin.setRouteId(1L);
+        Schedule target = schedule(FIXED_NOW.plusHours(6));
+        target.setId(2L);
+        target.setRouteId(1L);
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, target));
+
+        BizException ex = assertThrows(BizException.class,
+                () -> service.rebookTicket(10L, 2L, 20L, passenger));
+
+        assertTrue(ex.getMessage().contains("不足 1 小时"));
+    }
+
+    @Test
+    void 目标班次距发船不足一小时不能改签() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+        Schedule origin = schedule(FIXED_NOW.plusHours(5));
+        origin.setRouteId(1L);
+        Schedule target = schedule(FIXED_NOW.plusMinutes(40));
+        target.setId(2L);
+        target.setRouteId(1L);
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, target));
+
+        BizException ex = assertThrows(BizException.class,
+                () -> service.rebookTicket(10L, 2L, 20L, passenger));
+
+        assertTrue(ex.getMessage().contains("目标班次"));
+    }
+
+    @Test
+    void 允许改签到更早的班次() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+        Schedule origin = schedule(FIXED_NOW.plusHours(5));
+        origin.setRouteId(1L);
+        Schedule target = schedule(FIXED_NOW.plusHours(2));
+        target.setId(2L);
+        target.setRouteId(1L);
+        target.setPrice(new BigDecimal("100.00"));
+        Seat targetSeat = targetSeat();
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
+        when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, target));
+        when(seatRepository.findById(anyLong())).thenReturn(Optional.of(new Seat()));
+        when(seatRepository.findById(20L)).thenReturn(Optional.of(targetSeat));
+        when(ticketRepository.existsActiveTicket(anyString(), anyLong())).thenReturn(false);
+        when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
+        when(ticketRepository.save(any(Ticket.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Ticket newTicket = service.rebookTicket(10L, 2L, 20L, passenger);
+
+        // 只要两个班次都在发船前 1 小时以上，往早改也允许
+        assertEquals(2L, newTicket.getScheduleId());
+        assertEquals(0, new BigDecimal("100.00").compareTo(order.getTotalAmount()));
+    }
+
+    @Test
     void 乘客不能操作别人的订单() {
         Orders order = order(1L, 88L, new BigDecimal("100.00"));
         Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
-        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
 
         assertThrows(BizException.class, () -> service.refundTicket(10L, passenger));
     }
@@ -192,7 +327,7 @@ class OrderServiceTest {
         targetSchedule.setPrice(targetPrice);
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
-        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, targetSchedule));
         when(seatRepository.findById(anyLong())).thenReturn(Optional.of(new Seat()));
         when(seatRepository.findById(20L)).thenReturn(Optional.of(seat));

@@ -20,9 +20,9 @@ set "OPTS=--protocol=TCP -h 127.0.0.1 -P %DB_PORT% -u root -p%DB_PASSWORD% --def
 echo using port %DB_PORT% > "%LOG%"
 "%MYSQL_BIN%" %OPTS% < "%~dp0m3-seed.sql" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
-if not defined CODE (
-    python "%~dp0verify_m3.py" >> "%LOG%" 2>&1
-    set "CODE=%ERRORLEVEL%"
-)
+if not defined CODE python "%~dp0verify_m3.py" >> "%LOG%" 2>&1
+if not defined CODE if errorlevel 1 set "CODE=1"
+if not defined CODE python "%~dp0concurrency_refund_m3.py" >> "%LOG%" 2>&1
+if not defined CODE if errorlevel 1 set "CODE=1"
 type "%LOG%"
 exit /b %CODE%

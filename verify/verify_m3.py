@@ -146,7 +146,7 @@ def pick_schedules(schedules):
         candidates = [
             s for s in schedules
             if s["routeId"] == 1
-            and float(s["price"]) in (100.0, 120.0)
+            and float(s["price"]) in (100.0, 120.0, 130.0)
             and predicate(s)
         ]
         return max(candidates, key=lambda s: s["id"]) if candidates else None
@@ -159,10 +159,13 @@ def pick_schedules(schedules):
                 and parse_time(s["departTime"]) <= now)
     rebook = pick(lambda s: float(s["price"]) == 120.0
                   and parse_time(s["departTime"]) > now + timedelta(hours=2))
-    for label, schedule in (("FULL", full), ("WITHIN", within), ("PAST", past), ("REBOOK", rebook)):
+    nearby = pick(lambda s: float(s["price"]) == 130.0
+                  and now < parse_time(s["departTime"]) <= now + timedelta(hours=1))
+    for label, schedule in (("FULL", full), ("WITHIN", within), ("PAST", past), ("REBOOK", rebook),
+                                   ("NEARBY", nearby)):
         if schedule is None:
             raise SystemExit(f"缺少测试班次 {label}，先运行 verify/m3-seed.sql")
-    return full, within, past, rebook
+    return full, within, past, rebook, nearby
 
 
 print("=== M3 端到端验收 base=%s ===" % BASE)
@@ -173,8 +176,8 @@ seller = login("seller1", "seller123")
 admin = login("admin", "admin123")
 
 schedules = list_schedules(passenger)
-full, within, past, rebook = pick_schedules(schedules)
-print(f"测试班次 id: FULL={full['id']} WITHIN={within['id']} PAST={past['id']} REBOOK={rebook['id']}")
+full, within, past, rebook, nearby = pick_schedules(schedules)
+print(f"测试班次 id: FULL={full['id']} WITHIN={within['id']} PAST={past['id']} REBOOK={rebook['id']} NEARBY={nearby['id']}")
 
 # --- 1. 全额退（>2h） ---
 print("\n[1] 距发船 >2h：全额退")
@@ -198,7 +201,30 @@ check("退票 200", status, 200)
 close("实退金额 = 100*0.8 = 80", body["data"]["refundAmount"], 80)
 order = find_order(passenger, "/api/orders/mine", oid)
 close("订单总额 100-80 = 20", order["totalAmount"], 20)
-check("订单仍为 已支付（部分退票）", order["status"], "已支付")
+check("唯一一张票退掉 → 订单已退票（判据是有效票计数，不看金额归零）", order["status"], "已退票")
+
+# --- 2b. 部分退票：两票退一张，订单仍已支付 ---
+print("\n[2b] 部分退票：两票退一张")
+status, body = passenger.get_json(f"/api/schedules/{within['id']}/seats")
+free = [s for s in body["data"]["seats"] if s["state"] == "可选"]
+assert len(free) >= 2, free
+seats = [
+    {"seatNo": free[0]["seatNo"], "passengerName": "部分甲", "idCard": ID_PREFIX + STAMP[-3:] + "9"},
+    {"seatNo": free[1]["seatNo"], "passengerName": "部分乙", "idCard": ID_PREFIX + STAMP[-3:] + "0"},
+]
+status, body = passenger.post("/api/orders", {"scheduleId": within["id"], "seats": seats})
+check("下单 两票 200", status, 200)
+oid_part = body["data"]["id"]
+status, body = passenger.post(f"/api/orders/{oid_part}/pay")
+check("支付 两票 200", status, 200)
+part = find_order(passenger, "/api/orders/mine", oid_part)
+status, body = passenger.post(f"/api/tickets/{part['tickets'][0]['id']}/refund")
+check("退其中一张 200", status, 200)
+part = find_order(passenger, "/api/orders/mine", oid_part)
+close("订单总额 200-80 = 120", part["totalAmount"], 120)
+check("还有一张有效票 → 订单仍已支付", part["status"], "已支付")
+check("退掉的那张 已退票", part["tickets"][0]["status"], "已退票")
+check("留下的那张 仍已支付", part["tickets"][1]["status"], "已支付")
 
 # --- 3. 发船后拒绝 ---
 print("\n[3] 发船后退票应被拒")
@@ -285,6 +311,42 @@ print("\n[10] 管理员代乘客退票")
 status, body = admin.post(f"/api/tickets/{tid}/refund")
 check("已退票再退 409", status, 409)
 
+# --- 11. 改签后再退票：手续费按新班次算（缺陷 #4 回归） ---
+print("\n[11] 改签后退票按新班次算手续费")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "改后再退辛", ID_PREFIX + STAMP[-3:] + "8")
+order = find_order(passenger, "/api/orders/mine", oid)
+tid = order["tickets"][0]["id"]
+target = free_seat(passenger, within["id"])
+status, body = passenger.post(f"/api/tickets/{tid}/rebook",
+                              {"targetScheduleId": within["id"], "targetSeatId": target["seatId"]})
+check("改签到 2h 内的班次 200", status, 200)
+new_tid = body["data"]["id"]
+status, body = passenger.post(f"/api/tickets/{new_tid}/refund")
+check("改签后退票 200", status, 200)
+close("按新班次扣 20%（按原班次会全额退 100）", body["data"]["refundAmount"], 80)
+order = find_order(passenger, "/api/orders/mine", oid)
+close("订单总额 100-80 = 20", order["totalAmount"], 20)
+check("没有有效票 → 订单已退票（不看金额归零）", order["status"], "已退票")
+
+# --- 12. 原班次距发船不足 1 小时不能改签 ---
+print("\n[12] 原班次距发船不足 1 小时不能改签")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", nearby["id"], "近班壬", ID_PREFIX + STAMP[-3:] + "9")
+tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
+target = free_seat(passenger, full["id"])
+status, body = passenger.post(f"/api/tickets/{tid}/rebook",
+                              {"targetScheduleId": full["id"], "targetSeatId": target["seatId"]})
+check("原班次不足 1 小时改签 409", status, 409)
+check("错误提示含 1 小时", "1 小时" in str(body.get("message", "")), True)
+
+# --- 13. 目标班次距发船不足 1 小时不能改签 ---
+print("\n[13] 目标班次距发船不足 1 小时不能改签")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "近目标癸", ID_PREFIX + STAMP[-3:] + "0")
+tid = find_order(passenger, "/api/orders/mine", oid)["tickets"][0]["id"]
+target = free_seat(passenger, nearby["id"])
+status, body = passenger.post(f"/api/tickets/{tid}/rebook",
+                              {"targetScheduleId": nearby["id"], "targetSeatId": target["seatId"]})
+check("目标班次不足 1 小时改签 409", status, 409)
+check("错误提示含 目标班次", "目标班次" in str(body.get("message", "")), True)
 print("\n=== 结果 ===")
 if failures:
     print("失败 %d 项:" % len(failures))
