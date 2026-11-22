@@ -57,7 +57,7 @@ Vite 把 `/api` 代理到 `http://localhost:8089`，同源所以 Cookie 和 CSRF
 ### 4. 验一验
 
 ```bash
-cd frontend && npm run test             # 20 个前端用例（store + 路由守卫 + CSRF 令牌 + 订单列表退款/改签）
+cd frontend && npm run test             # 22 个前端用例（store + 路由守卫 + CSRF 令牌 + 订单列表退款/改签）
 cd backend  && mvnw.cmd -B -o test     # 39 个后端用例（含退票手续费、改签窗口、订单结清判据）
 verify\verify-db.cmd                   # 干净库导入 database.sql 并自检（8表/3视图/2触发器/1存储过程/500座位）
 verify\verify-m0.cmd                   # 端到端接口验收：CSRF/注册/登录/鉴权/登出，全 assert
