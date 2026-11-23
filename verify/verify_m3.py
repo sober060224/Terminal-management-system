@@ -20,8 +20,9 @@ except Exception:
     pass
 
 BASE = os.environ.get("FERRY_BASE", "http://localhost:8089")
-# m3-seed.sql 里固定 id 的已发船班次（列表接口会过滤掉它，只能写死）
-PAST_SCHEDULE_ID = 999901
+# 已发船班次不在 /api/schedules 里，m3-seed.sql 用 price = 99.99 打标记，
+# verify-m3.cmd 查出自增 id 后通过这个环境变量传进来。
+PAST_SCHEDULE_ID = int(os.environ.get("FERRY_PAST_SCHEDULE_ID", "0") or "0")
 
 # 身份证必须带 GB 11643 校验位，后端会校验；序号每次不同，避免一人一票判重。
 _ID_SEQ = int(time.time() * 1000) % 100000
@@ -186,7 +187,9 @@ def pick_schedules(schedules):
     for label, schedule in (("FULL", full), ("WITHIN", within), ("REBOOK", rebook),
                                    ("NEARBY", nearby)):
         if schedule is None:
-            raise SystemExit(f"缺少测试班次 {label}，先运行 verify/m3-seed.sql")
+            raise SystemExit(
+                f"缺少测试班次 {label}：先跑 verify/m3-seed.sql，并确认后端连的是同一个库"
+                "（DB_PORT 与 backend 的 application.yml 指向同一实例）")
     return full, within, rebook, nearby
 
 
@@ -254,6 +257,9 @@ check("留下的那张 仍已支付", part["tickets"][1]["status"], "已支付")
 
 # --- 3. 发船班次不在列表 + 下单被拒 ---
 print("\n[3] 发船班次不出现在列表，且不能下单")
+if not PAST_SCHEDULE_ID:
+    raise SystemExit("FERRY_PAST_SCHEDULE_ID 没传进来：请用 verify/verify-m3.cmd 运行，"
+                     "或手动设置该环境变量")
 check("发船班次不在列表", any(s["id"] == PAST_SCHEDULE_ID for s in schedules), False)
 status, body = passenger.post("/api/orders", {
     "scheduleId": PAST_SCHEDULE_ID,
