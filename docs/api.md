@@ -559,7 +559,8 @@ GET /api/orders/mine
           "refundReason": null,
           "refundTime": null,
           "changedFromTicketId": null,
-          "changedAt": null
+          "changedAt": null,
+          "departTime": "2026-11-24T08:00:00"
         }
       ]
     }
@@ -570,7 +571,7 @@ GET /api/orders/mine
 
 订单视图字段：`id`、`scheduleId`、`routeId`、`passengerId`、`sellerId`、`totalAmount`、`status`、`payTime`、`expireAt`、`createTime`、`tickets[]`。
 
-票视图字段：`id`、`orderId`、`scheduleId`、`seatId`、`seatNo`、`passengerName`、`idCard`、`phone`、`price`、`status`、`refundAmount`、`refundReason`、`refundTime`、`changedFromTicketId`、`changedAt`。
+票视图字段：`id`、`orderId`、`scheduleId`、`seatId`、`seatNo`、`passengerName`、`idCard`、`phone`、`price`、`status`、`refundAmount`、`refundReason`、`refundTime`、`changedFromTicketId`、`changedAt`、`departTime`（该票所属班次的发船时间，改签后的票是目标班次的时间；前端据此隐藏已发船的退改签按钮、给距发船不足 1 小时的票置灰）。
 
 #### 7.3.5 订单详情
 
@@ -619,7 +620,8 @@ GET /api/orders/{id}
         "refundReason": null,
         "refundTime": null,
         "changedFromTicketId": null,
-        "changedAt": null
+        "changedAt": null,
+        "departTime": "2026-11-24T08:00:00"
       }
     ]
   },

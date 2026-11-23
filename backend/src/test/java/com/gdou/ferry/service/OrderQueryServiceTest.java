@@ -65,7 +65,10 @@ class OrderQueryServiceTest {
         Ticket ticket = new Ticket();
         ticket.setId(10L);
         ticket.setOrderId(1L);
+        ticket.setScheduleId(2L);
         ticket.setPrice(new BigDecimal("100.00"));
+        LocalDateTime depart = LocalDateTime.of(2026, 11, 21, 18, 0);
+        schedule.setDepartTime(depart);
 
         when(ordersRepository.findByPassengerIdOrderByCreateTimeDesc(99L)).thenReturn(List.of(order));
         when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(ticket));
@@ -76,6 +79,8 @@ class OrderQueryServiceTest {
         assertEquals(7L, views.get(0).routeId());
         assertEquals(1, views.get(0).tickets().size());
         assertEquals(new BigDecimal("100.00"), views.get(0).tickets().get(0).price());
+        // 列表接口也要带票级发船时间：前端靠它隐藏已发船的退改签按钮
+        assertEquals(depart, views.get(0).tickets().get(0).departTime());
         verify(scheduleRepository).findAllById(List.of(2L));
     }
 
@@ -124,13 +129,33 @@ class OrderQueryServiceTest {
         when(ordersRepository.findBySellerIdOrderByCreateTimeDesc(5L)).thenReturn(List.of(order));
         when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(oldTicket, newTicket));
         when(seatRepository.findAllById(List.of(11L, 12L))).thenReturn(List.of());
-        when(scheduleRepository.findAllById(List.of(2L))).thenReturn(List.of(origin));
+        when(scheduleRepository.findAllById(List.of(2L, 3L))).thenReturn(List.of(origin));
 
         var views = service.sellerOrders(user(5L, Role.SELLER), null, null, 3L, null);
 
         // 订单原始班次是 2，但有一张票改到了 3：按 3 筛必须命中
         assertEquals(1, views.size());
         assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, 4L, null).isEmpty());
+    }
+
+    @Test
+    void 列表里改签后的票带的是新班次发船时间() {
+        Orders order = order(1L, 2L, 99L);
+        Schedule origin = schedule(2L, 7L, LocalDateTime.of(2026, 11, 21, 18, 0));
+        Schedule target = schedule(3L, 7L, LocalDateTime.of(2026, 11, 22, 15, 0));
+
+        Ticket oldTicket = ticket(10L, 1L, 2L);
+        Ticket newTicket = ticket(11L, 1L, 3L);
+
+        when(ordersRepository.findByPassengerIdOrderByCreateTimeDesc(99L)).thenReturn(List.of(order));
+        when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(oldTicket, newTicket));
+        when(seatRepository.findAllById(List.of(11L, 12L))).thenReturn(List.of());
+        when(scheduleRepository.findAllById(List.of(2L, 3L))).thenReturn(List.of(origin, target));
+
+        List<OrderRowView> views = service.myOrders(99L);
+
+        assertEquals(origin.getDepartTime(), views.get(0).tickets().get(0).departTime());
+        assertEquals(target.getDepartTime(), views.get(0).tickets().get(1).departTime());
     }
 
     private Schedule schedule(Long id, Long routeId, LocalDateTime departTime) {

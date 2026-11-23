@@ -24,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -139,11 +141,14 @@ public class OrderQueryService {
             return List.of();
         }
         Map<Long, Schedule> schedules = new HashMap<>();
-        scheduleRepository.findAllById(orders.stream().map(Orders::getScheduleId).distinct().toList())
-                .forEach(schedule -> schedules.put(schedule.getId(), schedule));
         Map<Long, List<Ticket>> tickets = ticketRepository
                 .findByOrderIdInOrderByIdAsc(orders.stream().map(Orders::getId).toList())
                 .stream().collect(Collectors.groupingBy(Ticket::getOrderId));
+        // 订单班次 + 票自己的班次：改签后同单跨班次，两边都要
+        List<Long> scheduleIds = new ArrayList<>(orders.stream().map(Orders::getScheduleId).distinct().toList());
+        tickets.values().stream().flatMap(List::stream).map(Ticket::getScheduleId).forEach(scheduleIds::add);
+        scheduleRepository.findAllById(scheduleIds.stream().distinct().toList())
+                .forEach(schedule -> schedules.put(schedule.getId(), schedule));
         Map<Long, String> seatNos = seatRepository
                 .findAllById(tickets.values().stream().flatMap(List::stream)
                         .map(Ticket::getSeatId).distinct().toList())
@@ -151,9 +156,15 @@ public class OrderQueryService {
         return orders.stream()
                 .map(order -> OrderRowView.of(order,
                         tickets.getOrDefault(order.getId(), List.of()).stream()
-                                .map(ticket -> TicketView.of(ticket, seatNos.get(ticket.getSeatId()))).toList(),
+                                .map(ticket -> TicketView.of(ticket, seatNos.get(ticket.getSeatId()),
+                                        departTimeOf(schedules.get(ticket.getScheduleId())))).toList(),
                         routeIdOf(schedules.get(order.getScheduleId()))))
                 .toList();
+    }
+
+    /** 票级发船时间：前端靠它隐藏已发船的退改签按钮、给不足 1 小时的票置灰。 */
+    private LocalDateTime departTimeOf(Schedule schedule) {
+        return schedule == null ? null : schedule.getDepartTime();
     }
 
     private Long routeIdOf(Schedule schedule) {
