@@ -234,7 +234,7 @@ public class OrderService {
             throw new BizException("只有已支付的船票可以退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
 
-        // 锁顺序：班次 → 订单行 → 座位 → 票；订单行必须在班次之后取，改签与退票才不会互锁（ADR-0002）
+        // 锁顺序：班次 → 订单行 → 票 → 座位；订单行必须在班次之后取，改签与退票才不会互锁（ADR-0002）
         if (!releaseSeat(ticket.getSeatId(), order.getId())) {
             log.warn("退票释放座位未命中：ticket={} seat={} order={}",
                     ticket.getId(), ticket.getSeatId(), order.getId());

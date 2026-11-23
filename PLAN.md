@@ -26,7 +26,7 @@ Boot 4 与 3.x 的四个坑，写码前先知道：
 - 回退方案：出问题就把 parent 从 `4.2.0` 改成 `4.1.3`（上一 minor，同为 Security 7 / Jackson 3），配置与代码零改动。
 
 **D2 并发控制只做一种：悲观锁。** 所有改座位的操作，事务第一句先 `SELECT ... FROM schedule WHERE id=? FOR UPDATE`
-锁住该班次，再动 `seat` / `orders` / `ticket`。全系统锁顺序固定为 schedule → seat → orders → ticket，不会死锁。
+锁住该班次，再动 `seat` / `orders` / `ticket`。全系统锁顺序固定为 schedule → orders → ticket → seat，不会死锁（ADR-0002）。
 理由：一条 SQL 就正确，50 线程并发脚本能现场演示"只有 1 个 201、49 个 409"；乐观锁要处理重试，
 课程项目里是纯负担。需求 3.4 允许"事务或乐观锁"，这算事务方案。见 ADR-0002。
 

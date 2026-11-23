@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.TreeSet;
 
 /**
- * ADR-0002：所有班次写操作统一从这里拿班次行锁，锁顺序 schedule → orders → seat → ticket。
+ * ADR-0002：所有班次写操作统一从这里拿班次行锁，锁顺序 schedule → orders → ticket → seat。
  */
 @Component
 public class ScheduleLock {

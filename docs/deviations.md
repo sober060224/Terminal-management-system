@@ -70,3 +70,15 @@
 - 需求（模块三）：只写了"乘客可退票/改签"，没限定售票员能操作谁的订单。
 - 实现：`OrderService.checkOrderPermission` 只对 `PASSENGER` 校验 `order.passengerId == 当前用户`；`SELLER` 与 `ADMIN` 直接放行，代退/代改签任意乘客的订单。
 - 理由：售票窗口要处理乘客拿纸质票来退改，管理员要处理投诉与对账，渠道限制反而不符合业务；审计靠 `seller_id` 与 `ticket.changed_at`/`refund_time` 留痕。
+
+## 11. 实体的创建时间走静态 Clock 入口（不是构造器注入）
+
+- 背景：`BaseEntity` 由 JPA 自己实例化，不是 Spring Bean，拿不到注入的 `Clock`；`orders.create_time` / `user.create_time` 之前直接调 `LocalDateTime.now()`。
+- 实现：`BaseEntity` 暴露静态 `setClock(Clock)`，`ClockConfig` 创建 `clock()` bean 时把同一个 Clock 交进去，实体 `@PrePersist` 用 `LocalDateTime.now(clock)`。业务时间（退票手续费、改签窗口）本来就走注入的 `Clock`，现在两处是同一个时钟。
+- 影响：测试里换成固定时钟后，实体创建时间也会跟着冻结，不会再出现「业务时间冻结、创建时间是真实时间」的不一致。
+
+## 12. 锁顺序统一为 schedule → orders → ticket → seat
+
+- 背景：ADR-0002、`ScheduleLock` 注释、`PLAN.md` 与 `OrderService` 实际取锁顺序曾有四套文字。
+- 实现：实际顺序是「班次行锁 → 订单行锁 → 改票状态 → 改座位状态」（`markRefunded` 在 `releaseSeat` 之前），四处文字统一成这一套（ADR-0002 首段与补段、`ScheduleLock` 类注释、`PLAN.md` D2、`OrderService` 注释）。
+- 理由：代码顺序不动（已逐条枚举无环），只把文字改对；文字写反会让下一个补丁照着写而引入死锁。
