@@ -74,7 +74,7 @@
 3. **触发器/存储过程只走了正常路径**：`trg_checkin_unique`（重复检票应 `SIGNAL` 45000）、`sp_generate_schedules`（批量生成班次）没有负向用例；`verify-db.log` 只证明它们存在且座位生成正确。
 4. **后端单测是纯单元测试**（`mvnw -o test` 不加载 Spring 上下文），`SecurityConfig` 的过滤链正确性只由端到端断言覆盖，没有 `MockMvc` 层测试。
 5. **MySQL 实例不是系统服务**：官方 `MySQL80` 服务当前是 Stopped（当前账号也没有启动它的权限），验收用的是 `temporary/mysql-local/data` 上的自建实例（端口 3307，`mysqlx=OFF`）。这影响「换机器能否一键跑」，不影响上述结论；`start.cmd` 与 `verify/verify-db.cmd` 会自动探测 3306 / 3307，`DB_PORT` / `MYSQL_BIN` 都是可覆盖变量。
-6. **浏览器验收只用 Chrome**：`frontend/e2e/m0-browser.mjs` 走本机 `C:/Program Files/Google/Chrome/Application/chrome.exe`，没有 Firefox/Safari/移动端视口验证。
+6. **浏览器验收只用 Chrome**：`frontend/e2e/m0-browser.mjs` 优先用 `FERRY_CHROME` / `CHROME_PATH`，否则在常见安装位置找 Chrome，都找不到才用 Playwright 自带 Chromium；没有 Firefox/Safari/移动端视口验证。
 7. **没有 CI**：四个 `.cmd` 手动执行；仓库里没有 workflow 文件。
 
 ---

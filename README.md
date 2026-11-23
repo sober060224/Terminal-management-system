@@ -71,6 +71,10 @@ python verify\concurrency_m3.py        # 模块三并发演示：50 线程抢同
 脚本要求后端已在 8089 运行、`database.sql` 已导入。浏览器脚本用本机
 Chrome / Edge，没设置 `FERRY_CHROME` 时用 Playwright 自带 Chromium。
 
+本地 MySQL 数据目录和所有验收日志/截图都在仓库内的 `temporary/`（见
+`temporary/README.md`），不进版本库；`start.cmd` 与各验收脚本默认就写到这里，
+所以克隆下来跑一遍不会污染仓库外的任何目录。
+
 常用环境变量：
 
 | 变量 | 用途 | 默认 |

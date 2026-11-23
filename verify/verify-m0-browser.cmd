@@ -4,7 +4,7 @@ REM Covers three-role landing plus logout-then-login. Keep comments ASCII (cmd r
 REM Usage: verify/verify-m0-browser.cmd
 REM Needs: backend on 8089, database.sql imported, npm install in frontend.
 setlocal
-if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\..\..\..\temporary\dbpractice-m3\"
+if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\temporary\dbpractice-m0\"
 set "DIR=%FERRY_ARTIFACTS%"
 set "LOG=%DIR%\verify-m0-browser.log"
 if not exist "%DIR%" mkdir "%DIR%"

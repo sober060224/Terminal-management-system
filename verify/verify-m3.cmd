@@ -1,10 +1,10 @@
 @echo off
 REM M3 API acceptance: seed relative-time schedules, then run Python assertions.
 REM Needs: mysql client (FERRY_MYSQL_BIN, else mysql on PATH), DB_PASSWORD, server on DB_PORT, backend on 8089.
-REM Usage: verify\verify-m3.cmd ; log saved to workspace temporary\dbpractice-m3\.
+REM Usage: verify\verify-m3.cmd ; log saved to temporary\dbpractice-m3\ in this repo (git-ignored).
 REM Keep comments ASCII: cmd.exe reads this file as GBK.
 setlocal
-if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\..\..\..\temporary\dbpractice-m3\"
+if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\temporary\dbpractice-m3\"
 set "DIR=%FERRY_ARTIFACTS%"
 set "LOG=%DIR%\verify-m3.log"
 if not exist "%DIR%" mkdir "%DIR%"
@@ -19,12 +19,14 @@ if not defined DB_PORT (
 REM mysql client: FERRY_MYSQL_BIN wins, else PATH lookup; fail with a Chinese hint.
 if defined FERRY_MYSQL_BIN goto :mysql_ready
 where mysql >nul 2>&1
-if errorlevel 1 (
-    echo 未找到 mysql 客户端，请把 MySQL bin 目录加入 PATH 或设置 FERRY_MYSQL_BIN
-    exit /b 1
+if not errorlevel 1 (
+    set "MYSQL_BIN=mysql"
+    goto :mysql_ok
 )
-set "MYSQL_BIN=mysql"
-goto :mysql_ok
+for /f "delims=" %%i in ('powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\mysql-bin.ps1" client 2^>nul') do set "MYSQL_BIN=%%i"
+if defined MYSQL_BIN goto :mysql_ok
+echo mysql client not found: add MySQL bin to PATH or set FERRY_MYSQL_BIN
+exit /b 1
 :mysql_ready
 set "MYSQL_BIN=%FERRY_MYSQL_BIN%"
 :mysql_ok

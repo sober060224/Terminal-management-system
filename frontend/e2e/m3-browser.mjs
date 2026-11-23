@@ -5,12 +5,13 @@ import { chromium } from 'playwright'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { chromePath } from './chrome.mjs'
 
 const BASE = process.env.FERRY_BASE || 'http://localhost:8089'
-// 截图目录：FERRY_ARTIFACTS（验收脚本会设），否则定位到工作区 temporary/dbpractice-m3/shots
+// 截图目录：FERRY_ARTIFACTS（验收脚本会设），否则用仓库内的 temporary/dbpractice-m3/shots
 const SHOTS = process.env.FERRY_ARTIFACTS
     ? path.join(process.env.FERRY_ARTIFACTS, 'shots')
-    : fileURLToPath(new URL('../../../../../temporary/dbpractice-m3/shots', import.meta.url))
+    : fileURLToPath(new URL('../../temporary/dbpractice-m3/shots', import.meta.url))
 fs.mkdirSync(SHOTS, { recursive: true })
 
 const fixturePath = process.env.FERRY_FIXTURE
@@ -28,7 +29,7 @@ function check(label, actual, expected) {
 }
 
 const launchOptions = { headless: true }
-if (process.env.FERRY_CHROME) launchOptions.executablePath = process.env.FERRY_CHROME
+launchOptions.executablePath = chromePath()
 const browser = await chromium.launch(launchOptions)
 const context = await browser.newContext({ viewport: { width: 1400, height: 900 } })
 const page = await context.newPage()
