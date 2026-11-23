@@ -5,10 +5,10 @@ REM Needs: mysql client, DB_PASSWORD, MySQL on DB_PORT, and the backend on 8089 
 REM Usage: verify\verify-m3.cmd ; log saved to temporary\dbpractice-m3\ in this repo (git-ignored).
 REM Keep comments ASCII: cmd.exe reads this file as GBK.
 setlocal
+if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\temporary\dbpractice-m3"
 set "CODE="
-if not defined FERRY_ARTIFACTS set "FERRY_ARTIFACTS=%~dp0..\temporary\dbpractice-m3\"
 set "DIR=%FERRY_ARTIFACTS%"
-set "LOG=%DIR%verify-m3.log"
+set "LOG=%FERRY_ARTIFACTS%\verify-m3.log"
 if not exist "%DIR%" mkdir "%DIR%"
 
 if defined DB_PASSWORD goto :port
@@ -80,8 +80,13 @@ if defined CODE goto :report
 python "%~dp0concurrency_refund_m3.py" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
 if defined CODE goto :report
+python "%~dp0concurrency_cross_schedule_m3.py" >> "%LOG%" 2>&1
+if errorlevel 1 set "CODE=1"
+if defined CODE goto :report
 "%MYSQL_BIN%" %OPTS% < "%~dp0m3_view_check.sql" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
+REM Leak counters: run twice and compare; these numbers must not grow (seeded rows excepted).
+"%MYSQL_BIN%" %OPTS% < "%~dp0m3_leak_check.sql" >> "%LOG%" 2>&1
 
 :report
 type "%LOG%"

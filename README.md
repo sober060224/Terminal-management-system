@@ -66,6 +66,7 @@ verify\verify-m0-browser.cmd           # 真实浏览器：三角色落点 + 登
 verify\verify-m3.cmd                   # 模块三端到端 + 并发：退改签规则、部分退票、双线程并发 + 退票/取消/改签三路并发 + 视图收入断言
 verify\verify-m3-browser.cmd           # 真实浏览器：先造 fixture 订单，再真正提交退票与改签并断言 HTTP 200
 python verify\concurrency_m3.py        # 模块三并发演示：50 线程抢同一座位 → 1 成功、49 个 409
+python verify\concurrency_cross_schedule_m3.py  # 跨班次并发：一单两票先改签一张，再同时退 A/B 两张，总额必须归零
 ```
 
 脚本要求后端已在 8089 运行、`database.sql` 已导入。浏览器脚本用本机

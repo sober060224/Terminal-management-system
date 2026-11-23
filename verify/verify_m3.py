@@ -46,6 +46,13 @@ def next_phone():
     _PHONE_SEQ = (_PHONE_SEQ + 1) % 10000
     return "138%08d" % _PHONE_SEQ
 
+# 本轮自己创建的订单 id，退出时统一清掉（P2-7）。
+CREATED_ORDERS = []
+import atexit
+from m3_teardown import teardown as teardown_orders
+
+atexit.register(lambda: teardown_orders(CREATED_ORDERS))
+
 failures = []
 
 
@@ -139,6 +146,22 @@ def free_seat(client, schedule_id):
     raise AssertionError(f"班次 {schedule_id} 没有可选座位")
 
 
+def free_seats(client, schedule_id, count):
+    status, body = client.get_json(f"/api/schedules/{schedule_id}/seats")
+    if status != 200:
+        raise SystemExit(f"座位列表失败 schedule={schedule_id}: {status} {body}")
+    free = [s for s in body["data"]["seats"] if s["state"] == "可选"]
+    if len(free) < count:
+        raise AssertionError(f"班次 {schedule_id} 可选座位不足 {count} 个")
+    return free[:count]
+
+
+def order_count(client):
+    status, body = client.get_json("/api/orders/mine")
+    assert status == 200, (status, body)
+    return len(body["data"] or [])
+
+
 def create_and_pay(client, list_path, schedule_id, name, id_card, create_path="/api/orders",
                    phone=None):
     phone = phone or next_phone()
@@ -149,6 +172,7 @@ def create_and_pay(client, list_path, schedule_id, name, id_card, create_path="/
     })
     check(f"下单 {name} 200", status, 200)
     order_id = body["data"]["id"]
+    CREATED_ORDERS.append(order_id)
     status, body = client.post(f"{create_path}/{order_id}/pay")
     check(f"支付 {name} 200", status, 200)
     return order_id, seat
@@ -244,6 +268,7 @@ check("下单 两票 200", status, 200)
 if status != 200 or not body.get("data"):
     raise SystemExit(f"[2b] 下单失败: {status} {body}")
 oid_part = body["data"]["id"]
+CREATED_ORDERS.append(oid_part)
 status, body = passenger.post(f"/api/orders/{oid_part}/pay")
 check("支付 两票 200", status, 200)
 part = find_order(passenger, "/api/orders/mine", oid_part)
@@ -379,6 +404,37 @@ status, body = passenger.post(f"/api/tickets/{tid}/rebook",
                               {"targetScheduleId": nearby["id"], "targetSeatId": target["seatId"]})
 check("目标班次不足 1 小时改签 409", status, 409)
 check("错误提示含 目标班次", "目标班次" in str(body.get("message", "")), True)
+# --- 14. 负向路径：后端校验必须真的在（删掉校验这段就会红） ---
+print("\n[14] 非法输入一律 400，且库里不新增订单")
+before = order_count(passenger)
+
+def bad(desc, schedule_id, seats):
+    status, body = passenger.post("/api/orders", {"scheduleId": schedule_id, "seats": seats})
+    check(f"{desc} 400", status, 400)
+    check(f"{desc} 错误码是校验错误", str(body.get("code")), "VALIDATION_ERROR")
+
+seat_a = free_seat(passenger, full["id"])
+bad("空姓名", full["id"], [{"seatNo": seat_a["seatNo"], "passengerName": "", "idCard": next_id_card(), "phone": next_phone()}])
+seat_b = free_seat(passenger, full["id"])
+bad("非法手机号", full["id"], [{"seatNo": seat_b["seatNo"], "passengerName": "坏手机子", "idCard": next_id_card(), "phone": "123"}])
+seat_c = free_seat(passenger, full["id"])
+legal = next_id_card()
+# 翻转校验位造一个确定的非法身份证（GB 11643 校验位必错）
+bad_check = "0" if legal[-1] != "0" else "1"
+bad("身份证校验位错", full["id"], [{"seatNo": seat_c["seatNo"], "passengerName": "坏证子", "idCard": legal[:-1] + bad_check, "phone": next_phone()}])
+seat_d, seat_e = free_seats(passenger, full["id"], 2)
+same_id = next_id_card()
+bad("同单两个乘船人同一身份证", full["id"], [
+    {"seatNo": seat_d["seatNo"], "passengerName": "重复甲", "idCard": same_id, "phone": next_phone()},
+    {"seatNo": seat_e["seatNo"], "passengerName": "重复乙", "idCard": same_id, "phone": next_phone()},
+])
+many = free_seats(passenger, full["id"], 6)
+bad("一张订单 6 张票", full["id"], [
+    {"seatNo": s["seatNo"], "passengerName": "超量%d" % i, "idCard": next_id_card(), "phone": next_phone()}
+    for i, s in enumerate(many)
+])
+check("五次非法下单后订单数没变", order_count(passenger), before)
+
 print("\n=== 结果 ===")
 if failures:
     print("失败 %d 项:" % len(failures))

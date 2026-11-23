@@ -27,6 +27,13 @@ except Exception:
 
 BASE = os.environ.get("FERRY_BASE", "http://localhost:8089")
 ROUNDS = int(os.environ.get("ROUNDS", "10"))
+
+# 本轮自己创建的订单，退出时清掉，库才不会越跑越脏（P2-7）。
+CREATED_ORDERS = []
+import atexit
+from m3_teardown import teardown as teardown_orders
+
+atexit.register(lambda: teardown_orders(CREATED_ORDERS))
 TRIPLE_ROUNDS = int(os.environ.get("TRIPLE_ROUNDS", "5"))
 USER = ("passenger1", "123456")
 
@@ -133,6 +140,7 @@ def run_round(index):
     status, body = buyer.post("/api/orders", payload)
     assert status == 200, "下单失败 %s %s" % (status, body)
     order_id = body["data"]["id"]
+    CREATED_ORDERS.append(order_id)
     status, body = buyer.post("/api/orders/%d/pay" % order_id)
     assert status == 200, "支付失败 %s %s" % (status, body)
     # 支付接口回的不是订单视图，重新拉一次列表拿票号
@@ -202,6 +210,7 @@ def run_triple(index):
     })
     assert status == 200, "下单失败 %s %s" % (status, body)
     order_id = body["data"]["id"]
+    CREATED_ORDERS.append(order_id)
     status, body = buyer.post("/api/orders/%d/pay" % order_id)
     assert status == 200, "支付失败 %s %s" % (status, body)
     status, order = buyer.get("/api/orders/%d" % order_id)
