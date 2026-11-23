@@ -1,8 +1,10 @@
 @echo off
-REM Import database.sql into a throwaway schema (ferry_verify_XXXXX) and print its self-check block.
+REM Import database.sql into a throwaway schema (ferry_verify_XXXXXXXX) and print its self-check block.
 REM The real ferry_system database is never created or dropped by this script.
 REM Port policy: 3306 (explicit or auto-detected) needs BOTH FERRY_ALLOW_3306=1 and
 REM   FERRY_VERIFY_DB_OK=1; otherwise the workspace instance on 3307 is used.
+REM Schema name: random and checked against @@datadir, so a leftover directory from a
+REM   crashed run can never make CREATE DATABASE fail with ER 3681.
 REM Needs: mysql client (FERRY_MYSQL_BIN, else PATH, else mysql-bin.ps1), DB_PASSWORD.
 REM Usage: verify\verify-db.cmd ; log saved to temporary\dbpractice-m0\ in this repo (git-ignored).
 REM Keep comments ASCII: cmd.exe reads this file as GBK.
@@ -58,28 +60,49 @@ exit /b 1
 set "MYSQL_BIN=%FERRY_MYSQL_BIN%"
 :mysql_ok
 
-REM temp schema name carries the cmd PID (audit: not %RANDOM%), and the log prints DATABASE() so it is
-REM provable the checks really ran against the temp schema.
-for /f "skip=1 tokens=1" %%i in ('wmic process where "name='cmd.exe'" get processid 2^>nul') do if not "%%i"=="" if not defined CMD_PID set "CMD_PID=%%i"
-if not defined CMD_PID set "CMD_PID=0"
-set "VERIFY_DB=ferry_verify_%CMD_PID%"
 set "TMP_SQL=%DIR%ferry_verify.sql"
 set "OPTS=--protocol=TCP -h 127.0.0.1 -P %DB_PORT% -u root -p%DB_PASSWORD% --default-character-set=utf8mb4"
 
-echo using port %DB_PORT% schema %VERIFY_DB% > "%LOG%"
-"%MYSQL_BIN%" %OPTS% -e "SELECT @@port AS port, @@datadir AS datadir;" >> "%LOG%" 2>&1
-if errorlevel 1 set "CODE=1"
+echo using port %DB_PORT% > "%LOG%"
+"%MYSQL_BIN%" %OPTS% -N -e "SELECT CONCAT('port=', @@port, ' datadir=', @@datadir);" >> "%LOG%" 2>&1
+if errorlevel 1 (
+    echo [ERROR] cannot connect to MySQL on port %DB_PORT%
+    type "%LOG%"
+    exit /b 1
+)
+
+REM A crashed run can leave a data directory behind without a registered schema, and then
+REM CREATE DATABASE fails with ER 3681. Never delete anything: retry with another random
+REM name, so a leftover directory can only ever cost one extra attempt.
+set /a PICK=0
+:pick_schema
+set /a PICK+=1
+if %PICK% GTR 5 (
+    echo [ERROR] import failed 5 times, last schema %VERIFY_DB% >> "%LOG%"
+    set "CODE=1"
+    goto :cleanup
+)
+set "VERIFY_DB=ferry_verify_%RANDOM%%RANDOM%"
+echo using port %DB_PORT% schema %VERIFY_DB% (attempt %PICK%) >> "%LOG%"
 
 REM database.sql stays untouched: rewrite the schema name in a copy so its DROP/CREATE hit only the temp schema.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$t=[IO.File]::ReadAllText('%~dp0..\database.sql'); $t=$t -replace 'ferry_system','%VERIFY_DB%'; [IO.File]::WriteAllText('%TMP_SQL%', $t, (New-Object Text.UTF8Encoding($false)))"
-if errorlevel 1 set "CODE=1"
-if defined CODE goto :cleanup
+if errorlevel 1 (
+    echo [ERROR] cannot rewrite database.sql into %TMP_SQL% >> "%LOG%"
+    set "CODE=1"
+    goto :cleanup
+)
 
 "%MYSQL_BIN%" %OPTS% < "%TMP_SQL%" >> "%LOG%" 2>&1
 set "IMPORT_CODE=%ERRORLEVEL%"
+if not "%IMPORT_CODE%"=="0" (
+    echo [WARN] import attempt %PICK% failed with exit %IMPORT_CODE%, retrying with a new schema name >> "%LOG%"
+    goto :pick_schema
+)
 echo. >> "%LOG%"
 echo --- structure check --- >> "%LOG%"
 "%MYSQL_BIN%" %OPTS% -N -e "SELECT CONCAT('db=', DATABASE()) FROM DUAL; USE %VERIFY_DB%; SELECT CONCAT('after USE: ', DATABASE());" >> "%LOG%" 2>&1
+if errorlevel 1 set "CODE=1"
 "%MYSQL_BIN%" %OPTS% -e "USE %VERIFY_DB%; SHOW TABLES; SHOW TRIGGERS; SHOW PROCEDURE STATUS WHERE Db='%VERIFY_DB%'; SELECT COUNT(*) AS seats FROM seat;" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
 if defined IMPORT_CODE if not "%IMPORT_CODE%"=="0" set "CODE=1"

@@ -10,11 +10,23 @@ import subprocess
 import tempfile
 
 
+# 常见安装位置：环境变量优先，其次按固定路径找。
+_CANDIDATE_BINS = [
+    "D:\\AAA_Software\\MySQL\\MySQL Server 8.0\\bin\\mysql.exe",
+    "C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysql.exe",
+    "C:\\xampp\\mysql\\bin\\mysql.exe",
+]
+
+
 def _mysql_bin():
     path = os.environ.get("FERRY_MYSQL_BIN") or os.environ.get("MYSQL_BIN")
     if path:
         return path
-    raise SystemExit("FERRY_MYSQL_BIN 未设置：请用 verify/verify-m3.cmd 跑，或手动指向 mysql.exe")
+    for candidate in _CANDIDATE_BINS:
+        if os.path.exists(candidate):
+            return candidate
+    # 清理是收尾工作，找不到客户端只警告，不该让整个脚本以 SystemExit 收场
+    return None
 
 
 def teardown(order_ids, usernames=()):
@@ -43,8 +55,12 @@ def teardown(order_ids, usernames=()):
     handle, path = tempfile.mkstemp(suffix=".sql")
     with os.fdopen(handle, "w", encoding="utf-8") as f:
         f.write("\n".join(statements) + "\n")
+    mysql = _mysql_bin()
+    if not mysql:
+        print("  [WARN] 找不到 mysql 客户端，跳过清理（本轮数据留在库里）")
+        return 1
     cmd = [
-        _mysql_bin(), "--protocol=TCP", "-h", "127.0.0.1",
+        mysql, "--protocol=TCP", "-h", "127.0.0.1",
         "-P", os.environ.get("DB_PORT", "3307"),
         "-u", os.environ.get("DB_USER", "root"),
         "-p" + os.environ.get("DB_PASSWORD", ""),
