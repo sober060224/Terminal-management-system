@@ -21,19 +21,22 @@ public record TicketView(
         String refundReason,
         LocalDateTime refundTime,
         Long changedFromTicketId,
-        LocalDateTime changedAt) {
+        LocalDateTime changedAt,
+        LocalDateTime departTime) {
 
     public static TicketView of(Ticket ticket) {
-        return new TicketView(ticket.getId(), ticket.getOrderId(), ticket.getScheduleId(),
-                ticket.getSeatId(), null, ticket.getPassengerName(), ticket.getIdCard(), ticket.getPhone(),
-                ticket.getPrice(), ticket.getStatus(), ticket.getRefundAmount(), ticket.getRefundReason(),
-                ticket.getRefundTime(), ticket.getChangedFromTicketId(), ticket.getChangedAt());
+        return of(ticket, null, null);
     }
 
     public static TicketView of(Ticket ticket, String seatNo) {
+        return of(ticket, seatNo, null);
+    }
+
+    /** seatNo 只有订单详情会填；departTime 同理，列表接口不查班次。 */
+    public static TicketView of(Ticket ticket, String seatNo, LocalDateTime departTime) {
         return new TicketView(ticket.getId(), ticket.getOrderId(), ticket.getScheduleId(),
                 ticket.getSeatId(), seatNo, ticket.getPassengerName(), ticket.getIdCard(), ticket.getPhone(),
                 ticket.getPrice(), ticket.getStatus(), ticket.getRefundAmount(), ticket.getRefundReason(),
-                ticket.getRefundTime(), ticket.getChangedFromTicketId(), ticket.getChangedAt());
+                ticket.getRefundTime(), ticket.getChangedFromTicketId(), ticket.getChangedAt(), departTime);
     }
 }

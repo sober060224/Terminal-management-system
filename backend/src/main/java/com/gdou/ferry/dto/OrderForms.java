@@ -1,5 +1,6 @@
 package com.gdou.ferry.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -41,7 +42,7 @@ public class OrderForms {
 
             @NotEmpty(message = "至少选择一个座位")
             @Size(max = 5, message = "一个订单最多 5 张票")
-            List<SeatRequest> seats
+            List<@Valid @NotNull SeatRequest> seats
     ) {}
 
     /**

@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.AuthenticationException;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局异常处理器，统一返回 Result 格式
@@ -39,6 +41,20 @@ public class GlobalExceptionHandler {
         String message = first != null ? first.getDefaultMessage() : "参数校验失败";
         log.warn("参数校验失败: {}", message);
         return Result.fail(message, ErrorCodes.VALIDATION_ERROR);
+    }
+
+    /**
+     * 破损 JSON（HttpMessageNotReadable）与路径/查询参数类型不对（例如 /api/orders/abc）
+     * 都属调用方错误，统一 400，不要落到兜底的 500。
+     */
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<Result<Void>> handleBadRequest(Exception e) {
+        log.warn("请求格式错误: {}", e.getMessage());
+        String message = e instanceof MethodArgumentTypeMismatchException mismatch
+                ? "请求参数格式不正确：" + mismatch.getName()
+                : "请求体格式不正确，请检查 JSON";
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Result.fail(message, ErrorCodes.VALIDATION_ERROR));
     }
 
     @ExceptionHandler(AuthenticationException.class)

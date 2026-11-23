@@ -14,6 +14,8 @@ import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.repository.OrdersRepository;
 import com.gdou.ferry.repository.SeatRepository;
 import com.gdou.ferry.repository.TicketRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,8 +34,8 @@ import java.util.Set;
  * 模块三核心：下单、支付、取消、退票、改签。
  *
  * 金额口径（PLAN.md D7 / ADR-0004 修订）：
- * orders.total_amount = 该订单当前实收/应收金额：支付时写入票面合计，退票时递减实退额，
- * 改签时改为新票合计；统计收入直接 SUM(orders.total_amount)。
+ * orders.total_amount = 该订单当前实收现金净额：支付时写入票面合计，退票时递减实退额，
+ * 改签时加减差价（新票价 − 原票价）；统计收入直接 SUM(orders.total_amount)。
  *
  * 隔离级别用 READ_COMMITTED：并发靠的是显式行锁（班次 + 订单行），而 MySQL 默认的
  * REPEATABLE READ 会让加锁之后的普通 SELECT 继续读事务开始时的旧快照——锁拿到了、
@@ -51,8 +53,10 @@ public class OrderService {
     /** 改签窗口：原班次与目标班次都必须在发船前 1 小时以上。 */
     private static final int REBOOK_MINUTES_BEFORE_DEPARTURE = 60;
 
-    /** 有效票 = 仍占用订单金额的票；已退票、已取消、待支付都不算。 */
-    private static final List<String> ACTIVE_TICKET_STATUSES = List.of("已支付", "已检票");
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+
+    /** 有效票 = 仍占用订单金额的票；已退票、已取消、待支付都不算。模块四检票后票变「已完成」。 */
+    private static final List<String> ACTIVE_TICKET_STATUSES = List.of("已支付", "已检票", "已完成");
 
     /** 退票原因预设（接口只接受这四项，不传记「乘客退票」，保持旧调用方可用）。 */
     private static final Set<String> REFUND_REASONS = Set.of("行程变更", "重复购票", "误购", "其他");
@@ -165,11 +169,12 @@ public class OrderService {
             }
             ticket.setStatus("已支付");
             ticketRepository.save(ticket);
-            seatRepository.findById(ticket.getSeatId()).ifPresent(seat -> {
-                seat.setSeatStatus("已售");
-                seat.setLockUntil(null);
-                seatRepository.save(seat);
-            });
+            // 条件更新置售：座位若已被别的订单抢走（锁过期后被新单占用），这里 0 行 →
+            // 整单回滚并 409，不会出现「一个座位两个已支付订单」（P1-1）。
+            if (seatRepository.sellByOrder(ticket.getSeatId(), orderId) == 0) {
+                throw new BizException("座位已被其他订单占用，请重新下单",
+                        HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+            }
         }
         return loadOrder(orderId);
     }
@@ -192,6 +197,7 @@ public class OrderService {
      *
      * @return 订单仍是待支付并已取消返回 true；已被支付/取消/清理抢先改到行返回 false。
      */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     boolean cancelAsSystem(Long orderId) {
         if (ordersRepository.markCancelled(orderId) == 0) {
             return false;
@@ -229,7 +235,10 @@ public class OrderService {
         }
 
         // 锁顺序：班次 → 订单行 → 座位 → 票；订单行必须在班次之后取，改签与退票才不会互锁（ADR-0002）
-        releaseSeat(ticket.getSeatId(), order.getId());
+        if (!releaseSeat(ticket.getSeatId(), order.getId())) {
+            log.warn("退票释放座位未命中：ticket={} seat={} order={}",
+                    ticket.getId(), ticket.getSeatId(), order.getId());
+        }
         ticket.setRefundAmount(refund);
         ticket.setRefundReason(reasonText);
         ticket.setRefundTime(now);
@@ -253,6 +262,11 @@ public class OrderService {
     public Ticket rebookTicket(Long ticketId, Long targetScheduleId, Long targetSeatId, LoginUser loginUser) {
         Ticket ticket = ticketRepository.findById(ticketId)
                 .orElseThrow(() -> new BizException("船票不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
+        // 同班次「改签」等于换座，直接让乘客退票重买，避免同单同班次撞一人一票判重
+        if (targetScheduleId != null && targetScheduleId.equals(ticket.getScheduleId())) {
+            throw new BizException("改签需换班次，同班次换座请退票重买",
+                    HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
         // 改签同时写原班次和目标班次，两个班次一起锁（按 id 升序），避免互相改签时死锁
         Map<Long, Schedule> locked = scheduleLock.lockAll(ticket.getScheduleId(), targetScheduleId);
         // 订单行悲观锁：先锁再读，理由同 refundTicket
@@ -312,10 +326,11 @@ public class OrderService {
         }
         ordersRepository.save(order);
 
-        targetSeat.setSeatStatus("已售");
-        targetSeat.setLockUntil(null);
-        targetSeat.setOrderId(order.getId());
-        seatRepository.save(targetSeat);
+        // 与支付同一套条件更新：目标座位已被别人买走时 0 行 → 409 整单回滚（M-1）
+        if (seatRepository.sellTargetSeat(targetSeatId, targetScheduleId, order.getId()) == 0) {
+            throw new BizException("目标座位已被占用，请换一个座位",
+                    HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
+        }
 
         Ticket newTicket = new Ticket();
         newTicket.setOrderId(order.getId());

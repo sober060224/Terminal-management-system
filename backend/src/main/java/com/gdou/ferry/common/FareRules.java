@@ -29,8 +29,9 @@ public final class FareRules {
         if (departTime == null || !departTime.isAfter(now)) {
             throw new BizException("发船后不能退票", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-        long minutes = Duration.between(now, departTime).toMinutes();
-        if (minutes > FULL_REFUND_MINUTES) {
+        // 直接比时刻而不是取整分钟：2:00:01 属于「超过 2 小时」，toMinutes() 会截成 2:00，
+        // 把差 1 秒的票错扣 20%（P3-1）。
+        if (Duration.between(now, departTime).compareTo(Duration.ofMinutes(FULL_REFUND_MINUTES)) > 0) {
             return price;
         }
         return price.multiply(BigDecimal.ONE.subtract(LATE_DEDUCT_RATIO))

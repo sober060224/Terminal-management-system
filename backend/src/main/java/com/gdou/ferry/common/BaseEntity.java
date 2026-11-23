@@ -18,6 +18,8 @@ public abstract class BaseEntity {
     @PrePersist
     protected void onCreate() {
         if (createTime == null) {
+            // 实体由 JPA 自己实例化，不是 Spring Bean，注入不进 Clock；
+            // 需要冻结时间的地方（手续费、改签窗口）走 OrderService 注入的 Clock。
             createTime = LocalDateTime.now().withNano(0); // 库列是 DATETIME(0)，先截平，免得序列化格式时有时无
         }
     }

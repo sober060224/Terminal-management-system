@@ -87,6 +87,10 @@ public class OrderQueryService {
         Ship ship = schedule == null ? null
                 : shipRepository.findById(schedule.getShipId()).orElse(null);
         List<Ticket> tickets = ticketRepository.findByOrderIdOrderByIdAsc(orderId);
+        // 改签会让同一订单的票分属两个班次，改签后的票要看目标班次的发船时间
+        Map<Long, Schedule> ticketSchedules = new HashMap<>();
+        scheduleRepository.findAllById(tickets.stream().map(Ticket::getScheduleId).distinct().toList())
+                .forEach(s -> ticketSchedules.put(s.getId(), s));
         Map<Long, String> seatNos = seatRepository
                 .findAllById(tickets.stream().map(Ticket::getSeatId).toList()).stream()
                 .collect(Collectors.toMap(Seat::getId, Seat::getSeatNo));
@@ -100,12 +104,18 @@ public class OrderQueryService {
                 ship == null ? null : ship.getShipName(),
                 schedule == null ? null : schedule.getDepartTime(),
                 schedule == null ? null : schedule.getArriveTime(),
-                tickets.stream().map(t -> TicketView.of(t, seatNos.get(t.getSeatId()))).toList());
+                tickets.stream().map(t -> {
+                    Schedule ticketSchedule = ticketSchedules.get(t.getScheduleId());
+                    return TicketView.of(t, seatNos.get(t.getSeatId()),
+                            ticketSchedule == null ? null : ticketSchedule.getDepartTime());
+                }).toList());
     }
 
     private boolean matches(OrderRowView view, LocalDate dateFrom, LocalDate dateTo,
                             Long scheduleId, String passengerName) {
-        if (scheduleId != null && !scheduleId.equals(view.scheduleId())) {
+        // 订单原始班次或任一票的班次命中即保留（改签后同单跨班次）
+        if (scheduleId != null && !scheduleId.equals(view.scheduleId())
+                && view.tickets().stream().noneMatch(t -> scheduleId.equals(t.scheduleId()))) {
             return false;
         }
         if (view.createTime() != null) {

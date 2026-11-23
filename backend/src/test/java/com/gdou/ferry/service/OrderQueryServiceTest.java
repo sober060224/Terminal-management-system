@@ -21,7 +21,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -85,6 +87,70 @@ class OrderQueryServiceTest {
 
         verify(ordersRepository).findBySellerIdOrderByCreateTimeDesc(5L);
         verify(ordersRepository, never()).findAll();
+    }
+
+    @Test
+    void 详情按每张票各自的班次返回发船时间() {
+        Orders order = order(1L, 2L, 99L);
+        Schedule origin = schedule(2L, 7L, LocalDateTime.of(2026, 11, 21, 18, 0));
+        origin.setShipId(5L);
+        Schedule target = schedule(3L, 7L, LocalDateTime.of(2026, 11, 21, 15, 0));
+
+        Ticket oldTicket = ticket(10L, 1L, 2L);
+        Ticket newTicket = ticket(11L, 1L, 3L);
+
+        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(ticketRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(oldTicket, newTicket));
+        when(seatRepository.findAllById(List.of(11L, 12L))).thenReturn(List.of());
+        when(scheduleRepository.findById(2L)).thenReturn(Optional.of(origin));
+        when(scheduleRepository.findAllById(List.of(2L, 3L))).thenReturn(List.of(origin, target));
+        when(routeRepository.findById(7L)).thenReturn(Optional.empty());
+        when(shipRepository.findById(5L)).thenReturn(Optional.empty());
+
+        var detail = service.detail(1L, user(99L, Role.PASSENGER));
+
+        // 改签后的票显示的是新班次时间，不能跟着订单原始班次走
+        assertEquals(origin.getDepartTime(), detail.tickets().get(0).departTime());
+        assertEquals(target.getDepartTime(), detail.tickets().get(1).departTime());
+    }
+
+    @Test
+    void 按目标班次筛选能查到改签后的订单() {
+        Orders order = order(1L, 2L, 99L);
+        Schedule origin = schedule(2L, 7L, LocalDateTime.of(2026, 11, 21, 18, 0));
+        Ticket oldTicket = ticket(10L, 1L, 2L);
+        Ticket newTicket = ticket(11L, 1L, 3L);
+
+        when(ordersRepository.findBySellerIdOrderByCreateTimeDesc(5L)).thenReturn(List.of(order));
+        when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(oldTicket, newTicket));
+        when(seatRepository.findAllById(List.of(11L, 12L))).thenReturn(List.of());
+        when(scheduleRepository.findAllById(List.of(2L))).thenReturn(List.of(origin));
+
+        var views = service.sellerOrders(user(5L, Role.SELLER), null, null, 3L, null);
+
+        // 订单原始班次是 2，但有一张票改到了 3：按 3 筛必须命中
+        assertEquals(1, views.size());
+        assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, 4L, null).isEmpty());
+    }
+
+    private Schedule schedule(Long id, Long routeId, LocalDateTime departTime) {
+        Schedule schedule = new Schedule();
+        schedule.setId(id);
+        schedule.setRouteId(routeId);
+        schedule.setDepartTime(departTime);
+        schedule.setStatus("售票中");
+        return schedule;
+    }
+
+    private Ticket ticket(Long id, Long orderId, Long scheduleId) {
+        Ticket ticket = new Ticket();
+        ticket.setId(id);
+        ticket.setOrderId(orderId);
+        ticket.setScheduleId(scheduleId);
+        ticket.setSeatId(id + 1);
+        ticket.setPrice(new BigDecimal("100.00"));
+        ticket.setStatus("已支付");
+        return ticket;
     }
 
     private Orders order(Long id, Long scheduleId, Long passengerId) {

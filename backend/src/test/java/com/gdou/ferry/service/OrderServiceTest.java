@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -185,8 +186,8 @@ class OrderServiceTest {
         assertEquals(0, new BigDecimal("120.00").compareTo(newTicket.getPrice()));
         assertEquals(10L, newTicket.getChangedFromTicketId());
         assertEquals("13800138000", newTicket.getPhone());
-        assertEquals("已售", targetSeat.getSeatStatus());
-        assertEquals(1L, targetSeat.getOrderId());
+        // 置售走条件更新（座位已被别人抢走时 0 行 → 409），不再直接改实体
+        verify(seatRepository).sellTargetSeat(20L, 2L, 1L);
     }
 
     @Test
@@ -287,6 +288,7 @@ class OrderServiceTest {
         when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, target));
         when(seatRepository.findById(20L)).thenReturn(Optional.of(targetSeat));
         when(ticketRepository.existsActiveTicket(anyString(), anyLong())).thenReturn(false);
+        when(seatRepository.sellTargetSeat(anyLong(), anyLong(), anyLong())).thenReturn(1);
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -357,6 +359,53 @@ class OrderServiceTest {
         verify(ticketRepository, never()).markRefunded(anyLong(), any(), anyString(), any());
     }
 
+    @Test
+    void 支付时座位已被别的订单占用则整单失败() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        order.setExpireAt(FIXED_NOW.plusMinutes(10));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+        ticket.setStatus("待支付");
+
+        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(ordersRepository.markPaid(eq(1L), any())).thenReturn(1);
+        when(ticketRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(java.util.List.of(ticket));
+        // 座位已被新订单锁走：按归属条件更新 0 行，必须整单回滚，不能悄悄置售
+        when(seatRepository.sellByOrder(11L, 1L)).thenReturn(0);
+
+        BizException ex = assertThrows(BizException.class, () -> service.payOrder(1L, passenger));
+
+        assertTrue(ex.getMessage().contains("座位已被其他订单占用"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+        verify(seatRepository, never()).save(any(Seat.class));
+    }
+
+    @Test
+    void 同班次不能改签() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+
+        when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
+
+        BizException ex = assertThrows(BizException.class,
+                () -> service.rebookTicket(10L, 1L, 20L, passenger));
+
+        assertTrue(ex.getMessage().contains("同班次"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+    }
+
+    @Test
+    void 改签时目标座位已被占用则失败() {
+        Orders order = order(1L, 99L, new BigDecimal("100.00"));
+        Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
+        stubRebook(order, ticket, new BigDecimal("120.00"), targetSeat(), 0);
+
+        BizException ex = assertThrows(BizException.class,
+                () -> service.rebookTicket(10L, 2L, 20L, passenger));
+
+        assertTrue(ex.getMessage().contains("目标座位已被占用"));
+        assertEquals(HttpStatus.CONFLICT, ex.getStatus());
+    }
+
     private Seat targetSeat() {
         Seat seat = new Seat();
         seat.setId(20L);
@@ -366,6 +415,10 @@ class OrderServiceTest {
     }
 
     private void stubRebook(Orders order, Ticket ticket, BigDecimal targetPrice, Seat seat) {
+        stubRebook(order, ticket, targetPrice, seat, 1);
+    }
+
+    private void stubRebook(Orders order, Ticket ticket, BigDecimal targetPrice, Seat seat, int seatRows) {
         Schedule origin = schedule(FIXED_NOW.plusHours(5));
         origin.setRouteId(1L);
         targetSchedule = schedule(FIXED_NOW.plusHours(6));
@@ -378,8 +431,10 @@ class OrderServiceTest {
         when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, targetSchedule));
         when(seatRepository.findById(20L)).thenReturn(Optional.of(seat));
         when(ticketRepository.existsActiveTicket(anyString(), anyLong())).thenReturn(false);
+        when(seatRepository.sellTargetSeat(anyLong(), anyLong(), anyLong())).thenReturn(seatRows);
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
-        when(ticketRepository.save(any(Ticket.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        // 红/绿两个方向共用这个助手：失败路径走不到保存，按 lenient 声明
+        lenient().when(ticketRepository.save(any(Ticket.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     private Orders order(Long id, Long passengerId, BigDecimal total) {

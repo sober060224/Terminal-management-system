@@ -7,13 +7,14 @@ import com.gdou.ferry.repository.ScheduleRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TreeSet;
 
 /**
- * ADR-0002：所有班次写操作统一从这里拿班次行锁，锁顺序 schedule → seat → orders → ticket。
+ * ADR-0002：所有班次写操作统一从这里拿班次行锁，锁顺序 schedule → orders → seat → ticket。
  */
 @Component
 public class ScheduleLock {
@@ -26,6 +27,10 @@ public class ScheduleLock {
 
     @Transactional
     public Schedule lock(Long scheduleId) {
+        // 脱离事务调用时 FOR UPDATE 的锁在方法返回（自动提交）时就没了，锁协议静默失效（M-8）
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("ScheduleLock 必须在事务内调用");
+        }
         return scheduleRepository.findByIdForUpdate(scheduleId)
                 .orElseThrow(() -> new BizException("班次不存在", HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
     }

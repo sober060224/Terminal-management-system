@@ -105,8 +105,10 @@ public class ScheduleQueryService {
         m.put("shipName", ship == null ? null : ship.getShipName());
         // 余票按座位表实时统计：座位表是占用状态的唯一事实来源（ADR-0003），
         // 不读 schedule.sold_seats，避免该冗余列与座位表脱节后算错。
-        long sold = seatRepository.countByScheduleIdAndSeatStatus(schedule.getId(), "已售");
-        m.put("remainingSeats", schedule.getTotalSeats() - sold);
+        // 已售 + 未过期的锁定都算占用，与 v_schedule_remaining 同口径；
+        // 只减「已售」会让界面显示还有票、下单却一直 409（M-10）
+        long taken = seatRepository.countUnavailable(schedule.getId(), LocalDateTime.now(clock));
+        m.put("remainingSeats", schedule.getTotalSeats() - taken);
         return m;
     }
 

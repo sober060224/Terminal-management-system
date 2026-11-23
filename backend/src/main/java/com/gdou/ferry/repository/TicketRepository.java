@@ -25,7 +25,7 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
      * 一人一票判重：该乘船人在该班次是否已有未作废（非已退票/已取消）的票。
      */
     @Query("select count(t) > 0 from Ticket t where t.idCard = :idCard and t.scheduleId = :scheduleId "
-            + "and t.status not in ('已退票', '已取消')")
+            + "and t.status in ('已支付', '已检票', '已完成')")
     boolean existsActiveTicket(@Param("idCard") String idCard, @Param("scheduleId") Long scheduleId);
 
     /**
