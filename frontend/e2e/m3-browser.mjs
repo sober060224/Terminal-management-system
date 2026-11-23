@@ -77,7 +77,7 @@ try {
     await page.waitForFunction(() => document.body.innerText.includes('已退票'), null, { timeout: 8000 })
     refunded = true
 } catch { refunded = false }
-check('退票成功提示或票状态已退票', refunded || /退票成功/.test(refundMessage), true)
+check('退票后票状态变为已退票', refunded, true)
 await page.screenshot({ path: `${SHOTS}/m3-03-after-refund.png` })
 
 // ④ 改签：打开对话框 → 选目标班次 → 选一个可选座位 → 确认 → 断言 HTTP 200
@@ -89,6 +89,11 @@ check('改签对话框打开', await rebookDialog.locator('.el-dialog__title').i
 await rebookDialog.locator('.el-select').first().click()
 await page.waitForTimeout(500)
 const scheduleOptions = page.locator('.el-select-dropdown__item:visible')
+// P3-3 回归：候选必须不含 1 小时内发船的班次——fixture 原班次发船都在 1 小时外，
+// 界面若漏过滤会多出其它早班次；断言候选数不超过同航线班次数（fixture 只造了两个）
+const optionTexts = await scheduleOptions.allInnerTexts()
+check('改签候选非空', optionTexts.length > 0, true)
+check('改签候选不含 1 小时内的班次', optionTexts.every((s) => new Date(s.match(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/)[0]).getTime() > Date.now() + 60 * 60 * 1000), true)
 const targetOption = scheduleOptions.filter({ hasText: String(fixture.targetDepartTime) })
 if (await targetOption.count()) await targetOption.first().click()
 else await scheduleOptions.first().click()
@@ -99,15 +104,36 @@ if (await seatButton.count()) {
     await seatButton.click()
 }
 await page.screenshot({ path: `${SHOTS}/m3-04-rebook-dialog.png` })
-const [rebookResponse] = await Promise.all([
+const [rebookResponse, rebookRequest] = await Promise.all([
     page.waitForResponse(isRequest('POST', /^\/api\/tickets\/\d+\/rebook$/)),
+    page.waitForRequest((r) => r.method() === 'POST' && /^\/api\/tickets\/\d+\/rebook$/.test(new URL(r.url()).pathname)),
     rebookDialog.getByRole('button', { name: '确认改签' }).click(),
 ])
+const rebookPayload = JSON.parse(rebookRequest.postData() || '{}')
 check('改签响应 200', rebookResponse.status(), 200)
 if (rebookResponse.status() !== 200) {
     console.log('改签失败响应:', await rebookResponse.text())
 }
 await page.screenshot({ path: `${SHOTS}/m3-05-after-rebook.png` })
+
+// ④b 订单详情页：改签过的票按各自班次显示发船时间（P1-3 回归）
+await page.getByRole('button', { name: '详情' }).first().click()
+await page.waitForFunction(() => /#\/orders\/\d+/.test(location.hash), null, { timeout: 8000 })
+const detailFirstTicket = page.locator('.el-table__row').first()
+await detailFirstTicket.waitFor({ timeout: 8000 })
+const detailRows = await page.locator('.el-table__row').allInnerTexts()
+// 改签时浏览器可能选了另一个目标班次，所以用请求里真正用的那个班次来断言
+const usedSchedule = await page.evaluate(async (sid) => {
+    const res = await fetch('/api/schedules/' + sid)
+    const body = await res.json()
+    return body && body.data ? body.data.departTime : null
+}, rebookPayload.targetScheduleId)
+const digits = (s) => String(s).replace(/[^0-9]/g, '')
+const wantDepart = digits(usedSchedule || '').slice(0, 12)
+// 详情里改签后的那张票必须显示目标班次的发船时间（票级班次，不是订单级）
+check('详情票级发船时间 = 改签目标班次', wantDepart.length > 0 && detailRows.some((row) => digits(row).includes(wantDepart)), true)
+await page.screenshot({ path: `${SHOTS}/m3-06-order-detail.png` })
+await page.goBack()
 
 // ⑤ 无未捕获 JS 错误
 check('页面没有 JS 报错', errors, [])

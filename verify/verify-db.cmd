@@ -58,7 +58,11 @@ exit /b 1
 set "MYSQL_BIN=%FERRY_MYSQL_BIN%"
 :mysql_ok
 
-set "VERIFY_DB=ferry_verify_%RANDOM%%RANDOM%"
+REM temp schema name carries the cmd PID (audit: not %RANDOM%), and the log prints DATABASE() so it is
+REM provable the checks really ran against the temp schema.
+for /f "skip=1 tokens=1" %%i in ('wmic process where "name='cmd.exe'" get processid 2^>nul') do if not "%%i"=="" if not defined CMD_PID set "CMD_PID=%%i"
+if not defined CMD_PID set "CMD_PID=0"
+set "VERIFY_DB=ferry_verify_%CMD_PID%"
 set "TMP_SQL=%DIR%ferry_verify.sql"
 set "OPTS=--protocol=TCP -h 127.0.0.1 -P %DB_PORT% -u root -p%DB_PASSWORD% --default-character-set=utf8mb4"
 
@@ -75,6 +79,7 @@ if defined CODE goto :cleanup
 set "IMPORT_CODE=%ERRORLEVEL%"
 echo. >> "%LOG%"
 echo --- structure check --- >> "%LOG%"
+"%MYSQL_BIN%" %OPTS% -N -e "SELECT CONCAT('db=', DATABASE()) FROM DUAL; USE %VERIFY_DB%; SELECT CONCAT('after USE: ', DATABASE());" >> "%LOG%" 2>&1
 "%MYSQL_BIN%" %OPTS% -e "USE %VERIFY_DB%; SHOW TABLES; SHOW TRIGGERS; SHOW PROCEDURE STATUS WHERE Db='%VERIFY_DB%'; SELECT COUNT(*) AS seats FROM seat;" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
 if defined IMPORT_CODE if not "%IMPORT_CODE%"=="0" set "CODE=1"

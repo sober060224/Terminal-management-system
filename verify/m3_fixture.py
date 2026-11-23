@@ -131,47 +131,74 @@ def available_seats(client, schedule_id, count):
     return seats[:count]
 
 
+def teardown(client, username, order_id):
+    """中途失败时退掉已支付的订单，避免给浏览器验收留下脏数据（审计 §4）。"""
+    try:
+        status, body = client.get_json("/api/orders/mine")
+        if status != 200:
+            return
+        order = next((o for o in body["data"] or [] if o["id"] == order_id), None)
+        if not order:
+            return
+        for ticket in order.get("tickets") or []:
+            if ticket.get("status") in ("已支付", "已检票"):
+                client.post(f"/api/tickets/{ticket["id"]}/refund", {"reason": "其他"})
+        status, body = client.get_json("/api/orders/mine")
+        order = next((o for o in body["data"] or [] if o["id"] == order_id), None)
+        if order and order.get("status") == "已退票":
+            print(f"[fixture] 已清理测试订单 {order_id}（整单退票）", file=sys.stderr)
+    except Exception as e:
+        print(f"[fixture] 清理失败（不影响验收结果，重跑可复用同一订单）: {e}", file=sys.stderr)
+
 def main():
-    username = register(1, "浏览器甲")
-    register(2, "浏览器乙")
-    client = login(username)
+    username = None
+    order_id = None
+    client = None
+    try:
+        username = register(1, "浏览器甲")
+        register(2, "浏览器乙")
+        client = login(username)
 
-    schedule, target = future_schedules(client, 2)
-    seats = available_seats(client, schedule["id"], 2)
-    status, body = client.post("/api/orders", {
-        "scheduleId": schedule["id"],
-        "seats": [
-            {"seatNo": s["seatNo"], "passengerName": "浏览器甲", "idCard": id_card(10 + n),
-             "phone": phone(10 + n)}
-            for n, s in enumerate(seats)
-        ],
-    })
-    if status != 200:
-        fail(f"下单失败: {status} {body}")
-    order_id = body["data"]["id"]
+        schedule, target = future_schedules(client, 2)
+        seats = available_seats(client, schedule["id"], 2)
+        status, body = client.post("/api/orders", {
+            "scheduleId": schedule["id"],
+            "seats": [
+                {"seatNo": s["seatNo"], "passengerName": "浏览器甲", "idCard": id_card(10 + n),
+                 "phone": phone(10 + n)}
+                for n, s in enumerate(seats)
+            ],
+        })
+        if status != 200:
+            fail(f"下单失败: {status} {body}")
+        order_id = body["data"]["id"]
 
-    status, body = client.post(f"/api/orders/{order_id}/pay")
-    if status != 200:
-        fail(f"支付失败: {status} {body}")
+        status, body = client.post(f"/api/orders/{order_id}/pay")
+        if status != 200:
+            fail(f"支付失败: {status} {body}")
 
-    status, body = client.get_json("/api/orders/mine")
-    if status != 200:
-        fail(f"订单列表失败: {status} {body}")
-    order = next((o for o in body["data"] if o["id"] == order_id), None)
-    if order is None:
-        fail(f"订单 {order_id} 不在 /api/orders/mine")
+        status, body = client.get_json("/api/orders/mine")
+        if status != 200:
+            fail(f"订单列表失败: {status} {body}")
+        order = next((o for o in body["data"] if o["id"] == order_id), None)
+        if order is None:
+            fail(f"订单 {order_id} 不在 /api/orders/mine")
 
-    target_seat = available_seats(client, target["id"], 1)[0]
-    print(json.dumps({
-        "username": username,
-        "password": PASSWORD,
-        "orderId": order_id,
-        "ticketId": order["tickets"][0]["id"],
-        "targetScheduleId": target["id"],
-        "targetDepartTime": target["departTime"],
-        "targetSeatId": target_seat["seatId"],
-        "routeId": schedule["routeId"],
-    }, ensure_ascii=False))
+        target_seat = available_seats(client, target["id"], 1)[0]
+        print(json.dumps({
+            "username": username,
+            "password": PASSWORD,
+            "orderId": order_id,
+            "ticketId": order["tickets"][0]["id"],
+            "targetScheduleId": target["id"],
+            "targetDepartTime": target["departTime"],
+            "targetSeatId": target_seat["seatId"],
+            "routeId": schedule["routeId"],
+        }, ensure_ascii=False))
+    except BaseException:
+        if client and order_id:
+            teardown(client, username, order_id)
+        raise
 
 
 if __name__ == "__main__":

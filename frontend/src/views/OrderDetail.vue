@@ -47,30 +47,26 @@ onMounted(load)
         <el-empty v-if="!loading && !order" description="订单不存在" />
 
         <template v-if="order">
-            <el-descriptions title="班次信息" :column="2" border size="small" style="margin-bottom: 16px">
+            <el-descriptions title="订单信息" :column="2" border size="small" style="margin-bottom: 16px">
                 <el-descriptions-item label="航线">{{ order.routeName }}</el-descriptions-item>
                 <el-descriptions-item label="船舶">{{ order.shipName }}</el-descriptions-item>
-                <el-descriptions-item label="出发 → 到达">{{ order.startPort }} → {{ order.endPort }}</el-descriptions-item>
-                <el-descriptions-item label="发船 - 到达">{{ order.departTime }} - {{ order.arriveTime }}</el-descriptions-item>
-            </el-descriptions>
-
-            <el-descriptions title="订单信息" :column="2" border size="small" style="margin-bottom: 16px">
+                <el-descriptions-item label="下单时间">{{ order.createTime }}</el-descriptions-item>
+                <el-descriptions-item label="实收金额">{{ order.totalAmount }} 元</el-descriptions-item>
                 <el-descriptions-item label="订单号">{{ order.id }}</el-descriptions-item>
                 <el-descriptions-item label="状态">
                     <el-tag :type="statusType(order.status)">{{ order.status }}</el-tag>
                 </el-descriptions-item>
-                <el-descriptions-item label="实收金额">{{ order.totalAmount }} 元</el-descriptions-item>
-                <el-descriptions-item label="创建时间">{{ order.createTime }}</el-descriptions-item>
                 <el-descriptions-item label="支付时间">{{ order.payTime || '未支付' }}</el-descriptions-item>
             </el-descriptions>
 
-            <div class="section-title">船票信息</div>
+            <div class="section-title">船票信息（改签过的票按各自班次显示发船时间）</div>
             <el-table :data="order.tickets" border size="small">
                 <el-table-column prop="seatNo" label="座位号" width="90" />
                 <el-table-column prop="passengerName" label="乘船人" width="100" />
                 <el-table-column prop="idCard" label="身份证号" width="180" />
                 <el-table-column prop="phone" label="手机号" width="130" />
                 <el-table-column prop="price" label="票价" width="80" />
+                <el-table-column prop="departTime" label="发船时间" min-width="160" />
                 <el-table-column prop="status" label="票状态" width="90">
                     <template #default="{ row }">
                         <el-tag size="small" :type="statusType(row.status)">{{ row.status }}</el-tag>

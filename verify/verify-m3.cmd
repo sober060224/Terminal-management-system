@@ -74,6 +74,18 @@ if not defined FERRY_PAST_SCHEDULE_ID (
     goto :report
 )
 
+REM Same-instance proof (audit): seed writes a schedule whose only purpose is the 99.99 price tag
+REM and whose depart time is one hour in the past. verify_m3.py logs in and reads /api/schedules
+REM through the backend; if the backend were pointed at another database, [3] (departed-schedule
+REM refund refusal) would fail because the departed schedule would not exist for it.
+REM Before that, prove the backend is actually up: /api/auth/csrf needs no session.
+python -c "import sys,urllib.request; r=urllib.request.urlopen('http://localhost:8089/api/auth/csrf', timeout=10); sys.exit(0 if r.status==200 else 1)" 2>>"%LOG%"
+if errorlevel 1 (
+    echo [ERROR] backend API unreachable at http://localhost:8089 - is the backend running?
+    set "CODE=1"
+    goto :report
+)
+
 python "%~dp0verify_m3.py" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
 if defined CODE goto :report

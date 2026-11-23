@@ -154,7 +154,7 @@ SELECT
     CASE
         -- 票级状态才是真相：已支付/已检票/已完成 的座位都已经卖出去，不能再卖
         WHEN o.status IN ('已支付', '已检票', '已完成') THEN '已售'
-        -- 选座锁（3 分钟）或下单锁（15 分钟）未过期
+        -- 下单锁（15 分钟）未过期：锁定状态跟随订单支付截止时间
         WHEN s.lock_until IS NOT NULL AND s.lock_until > NOW() THEN '锁定'
         WHEN o.id IS NOT NULL AND o.status = '待支付' AND o.expire_at > NOW() THEN '锁定'
         ELSE '可选'

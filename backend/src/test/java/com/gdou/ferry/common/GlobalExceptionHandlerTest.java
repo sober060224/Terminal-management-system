@@ -7,6 +7,8 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import java.time.LocalDate;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -38,5 +40,16 @@ class GlobalExceptionHandlerTest {
         assertFalse(response.getBody().isSuccess());
         assertEquals(ErrorCodes.VALIDATION_ERROR, response.getBody().getCode());
         assertTrue(response.getBody().getMessage().contains("id"));
+    }
+
+    @Test
+    void 查询参数日期格式不对返回400并指出参数名() {
+        ResponseEntity<Result<Void>> response = handler.handleBadRequest(
+                new MethodArgumentTypeMismatchException("abc", LocalDate.class, "dateFrom", null, null));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertFalse(response.getBody().isSuccess());
+        assertEquals(ErrorCodes.VALIDATION_ERROR, response.getBody().getCode());
+        assertTrue(response.getBody().getMessage().contains("dateFrom"));
     }
 }

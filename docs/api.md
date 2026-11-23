@@ -394,7 +394,7 @@ axios.defaults.xsrfHeaderName = 'X-XSRF-TOKEN';
 > - `orders.total_amount` = **该订单当前的实收/应收金额**。支付时写入票面合计，退票时递减实退额，改签时改为新票票面合计。
 > - 部分退票、改签窗口与手续费基准班次这三处与需求文档字面有出入，登记在 `docs/deviations.md`。
 > - 改签是**多退少补**：差价 = 新班次票价 − 原票票价，同一接口内一次完成。
-> - M3 只维护 `待支付 / 已支付 / 已退票 / 已取消` 四态，`已检票 / 已完成` 属于模块四。
+> - M3 主链路维护 `待支付 / 已支付 / 已退票 / 已取消`；`已检票 / 已完成` 属于模块四，但「有效票」口径（判据、查重、余票）已把它们算进去。
 > - 权限前缀：`/api/seller/**` 需要 SELLER 或 ADMIN；其余 `/api/**` 只需登录。
 
 ### 7.1 班次查询
@@ -443,7 +443,7 @@ GET /api/schedules
 | `totalSeats` | number | 总座位数 |
 | `routeName` / `startPort` / `endPort` | string | 航线信息 |
 | `shipName` | string | 船名 |
-| `remainingSeats` | number | 余票 = `totalSeats` − 座位表已售数 |
+| `remainingSeats` | number | 余票 = `totalSeats` −（座位表已售 + 尚未到期的锁定），与 GLOSSARY「余票」同一口径 |
 
 #### 7.1.2 班次详情
 
@@ -650,7 +650,7 @@ Content-Type: application/json
 | 不足或等于 2 小时 | 票面 × 80%（扣 20% 手续费） |
 | 已发船 | 拒绝，409 `发船后不能退票`，不落流水 |
 
-效果：票 → `已退票`（`refund_amount` = 实退现金，`refund_reason` = 请求里的 `reason`，缺省 `乘客退票`），座位释放，`orders.total_amount` 递减实退额；这张单再没有 `已支付`/`已检票` 的票时订单 → `已退票`（判据是有效票计数，不是金额归零），否则保持 `已支付`。成功返回 200，`message` 为 `退票成功`，`data` 为票视图。
+效果：票 → `已退票`（`refund_amount` = 实退现金，`refund_reason` = 请求里的 `reason`，缺省 `乘客退票`），座位释放，`orders.total_amount` 递减实退额；这张单再没有有效票（`已支付`/`已检票`/`已完成`） 的票时订单 → `已退票`（判据是有效票计数，不是金额归零），否则保持 `已支付`。成功返回 200，`message` 为 `退票成功`，`data` 为票视图。
 
 #### 7.4.2 改签（按单张票，多退少补，限同航线）
 
@@ -665,7 +665,7 @@ Content-Type: application/json
 - 改签窗口：**原班次与目标班次**的 `depart_time` 都必须在当前时刻 1 小时之后（两个都满足）；只要满足，改到更早的班次也允许。
 - 目标班次必须售票中，且与原班次 `routeId` 相同。
 - 目标座位必须属于目标班次，且当前可选。
-- 同一乘船人不能在目标班次已有有效票（一人一票）。
+- 同一乘船人不能在目标班次已有有效票（一人一票，口径见 GLOSSARY「有效票」）。
 - 差价 = 新票价 − 原票价。原票 → `已退票`（`refund_reason` = `改签`，`refund_amount` = 退差额时的差额，补差价时为 0），原座位释放；`orders.total_amount` 加上差价（补差价 +，退差额 −）。
 - 目标座位置 `已售` 并挂到原订单；新票 `已支付`，`changed_from_ticket_id` 指回原票，`changed_at` 记改签时间。
 

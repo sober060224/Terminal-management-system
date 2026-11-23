@@ -338,7 +338,7 @@ public class OrderService {
         newTicket.setSeatId(targetSeatId);
         newTicket.setPassengerName(ticket.getPassengerName());
         newTicket.setIdCard(ticket.getIdCard());
-            newTicket.setPhone(ticket.getPhone());
+        newTicket.setPhone(ticket.getPhone());
         newTicket.setPrice(target.getPrice());
         newTicket.setStatus("已支付");
         newTicket.setChangedFromTicketId(ticket.getId());
