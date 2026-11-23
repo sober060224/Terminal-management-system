@@ -17,11 +17,17 @@ def _mysql_bin():
     raise SystemExit("FERRY_MYSQL_BIN 未设置：请用 verify/verify-m3.cmd 跑，或手动指向 mysql.exe")
 
 
-def teardown(order_ids):
+def teardown(order_ids, usernames=()):
+    """删除本轮脚本创建的订单与测试账号。
+
+    usernames 是脚本自己注册出来的账号（m3_fixture.py 的「浏览器甲/乙」），
+    留着会让 user 表每跑一次涨两个（P2-7）。
+    """
     ids = sorted({int(i) for i in order_ids if i})
-    if not ids:
+    names = sorted({u for u in usernames if u})
+    if not ids and not names:
         return 0
-    listed = ",".join(str(i) for i in ids)
+    listed = ",".join(str(i) for i in ids) if ids else "0"
     db = os.environ.get("FERRY_DB", "ferry_system")
     statements = [
         f"USE {db};",
@@ -31,6 +37,9 @@ def teardown(order_ids):
         f"DELETE FROM ticket WHERE order_id IN ({listed});",
         f"DELETE FROM orders WHERE id IN ({listed});",
     ]
+    if names:
+        name_list = ",".join("'" + n.replace("'", "''") + "'" for n in names)
+        statements.append(f"DELETE FROM user WHERE username IN ({name_list});")
     handle, path = tempfile.mkstemp(suffix=".sql")
     with os.fdopen(handle, "w", encoding="utf-8") as f:
         f.write("\n".join(statements) + "\n")
@@ -47,5 +56,5 @@ def teardown(order_ids):
     if done.returncode != 0:
         print("  清理失败：" + done.stderr.decode("utf-8", "replace").strip())
         return done.returncode
-    print(f"  已清理本轮创建的 {len(ids)} 个订单")
+    print(f"  已清理本轮创建的 {len(ids)} 个订单、{len(names)} 个账号")
     return 0

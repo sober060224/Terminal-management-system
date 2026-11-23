@@ -78,6 +78,18 @@ class Client:
         return self._request(req)
 
 
+def cleanup(fixture):
+    """清掉浏览器验收留下的东西（P2-7）：删掉这轮的订单与两个测试账号。
+
+    浏览器脚本跑完会退一张票、改签一张票，库里会留下一张有效票和两个账号。
+    用法：python m3_fixture.py --cleanup fixture.json
+    """
+    import m3_teardown
+    order_id = fixture["orderId"]
+    accounts = [u for u in (fixture.get("username"), fixture.get("username2")) if u]
+    m3_teardown.teardown([order_id], accounts)
+
+
 def register(index, name):
     username = "b" + STAMP + f"{index:02d}"
     client = Client()
@@ -156,7 +168,7 @@ def main():
     client = None
     try:
         username = register(1, "浏览器甲")
-        register(2, "浏览器乙")
+        username2 = register(2, "浏览器乙")
         client = login(username)
 
         schedule, target = future_schedules(client, 2)
@@ -187,6 +199,7 @@ def main():
         target_seat = available_seats(client, target["id"], 1)[0]
         print(json.dumps({
             "username": username,
+            "username2": username2,
             "password": PASSWORD,
             "orderId": order_id,
             "ticketId": order["tickets"][0]["id"],
@@ -206,4 +219,8 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-    main()
+    if len(sys.argv) >= 3 and sys.argv[1] == "--cleanup":
+        with open(sys.argv[2], encoding="utf-8") as handle:
+            cleanup(json.load(handle))
+    else:
+        main()

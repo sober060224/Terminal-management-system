@@ -5,4 +5,5 @@ SELECT
     (SELECT COUNT(*) FROM orders) AS orders_total,
     (SELECT COUNT(*) FROM ticket WHERE status IN ('待支付', '已支付', '已检票')) AS open_tickets,
     (SELECT COUNT(*) FROM seat WHERE seat_status = '锁定') AS locked_seats,
-    (SELECT COUNT(*) FROM seat WHERE seat_status = '已售') AS sold_seats;
+    (SELECT COUNT(*) FROM seat WHERE seat_status = '已售') AS sold_seats,
+    (SELECT COUNT(*) FROM user WHERE username REGEXP '^b[0-9]{10}$') AS fixture_users;
