@@ -49,7 +49,7 @@ onMounted(loadSchedules)
     <div>
         <div class="card search-card">
             <el-form :inline="true">
-                <el-form-item label="发船日期">
+                <el-form-item label="下单日期">
                     <el-date-picker
                         v-model="dateRange"
                         type="daterange"

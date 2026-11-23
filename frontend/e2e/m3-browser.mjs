@@ -71,10 +71,13 @@ const [refundResponse] = await Promise.all([
     refundDialog.getByRole('button', { name: '确认退票' }).click(),
 ])
 check('退票响应 200', refundResponse.status(), 200)
-const refundMessage = await page.locator('.el-message').innerText().catch(() => '')
-check('退票成功提示或票状态已退票',
-    /退票成功|已退票/.test(refundMessage)
-    || (await page.locator('.order').first().innerText()).includes('已退票'), true)
+// 成功提示 3 秒就消失，退票后列表要等 load() 刷新；直接轮询票状态变化更稳
+let refunded = false
+try {
+    await page.waitForFunction(() => document.body.innerText.includes('已退票'), null, { timeout: 8000 })
+    refunded = true
+} catch { refunded = false }
+check('退票成功提示或票状态已退票', refunded || /退票成功/.test(refundMessage), true)
 await page.screenshot({ path: `${SHOTS}/m3-03-after-refund.png` })
 
 // ④ 改签：打开对话框 → 选目标班次 → 选一个可选座位 → 确认 → 断言 HTTP 200

@@ -1,6 +1,6 @@
 -- 轮渡码头客运管理系统 数据库脚本
 -- 设计见 PLAN.md §1
--- 执行: mysql -u root -p < database.sql
+-- 执行: mysql -u root -p --default-character-set=utf8mb4 < database.sql
 
 DROP DATABASE IF EXISTS ferry_system;
 CREATE DATABASE ferry_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -72,7 +72,7 @@ CREATE TABLE seat (
     schedule_id BIGINT NOT NULL,
     seat_no VARCHAR(10) NOT NULL COMMENT '座位号 A1, A2, B1...',
     seat_status ENUM('可选', '已售', '锁定') NOT NULL DEFAULT '可选',
-    lock_until DATETIME NULL COMMENT '锁定截止时间（选座3分钟）',
+    lock_until DATETIME NULL COMMENT '锁定截止时间（跟随订单支付截止，默认 15 分钟）',
     order_id BIGINT NULL COMMENT '下单后写入（15分钟锁）',
     FOREIGN KEY (schedule_id) REFERENCES schedule(id),
     UNIQUE KEY uk_seat (schedule_id, seat_no) COMMENT '同班次同座位号唯一',
@@ -164,15 +164,22 @@ FROM seat s
 LEFT JOIN orders o ON s.order_id = o.id;
 
 -- 视图2: 班次余票
+-- 占用 = 已售 + 未过期的锁定，与后端 ScheduleQueryService 同口径；
+-- 只数已支付的票会漏掉「已锁定但还没付」的座位，界面显示有票却买不到。
 CREATE OR REPLACE VIEW v_schedule_remaining AS
 SELECT
     sch.id AS schedule_id,
     sch.total_seats,
-    COALESCE(COUNT(t.id), 0) AS sold_count,
-    sch.total_seats - COALESCE(COUNT(t.id), 0) AS remaining_seats
+    COALESCE(SUM(CASE WHEN st.seat_status = '已售'
+                           OR (st.seat_status = '锁定'
+                               AND (st.lock_until IS NULL OR st.lock_until > NOW()))
+                      THEN 1 ELSE 0 END), 0) AS sold_count,
+    sch.total_seats - COALESCE(SUM(CASE WHEN st.seat_status = '已售'
+                                            OR (st.seat_status = '锁定'
+                                                AND (st.lock_until IS NULL OR st.lock_until > NOW()))
+                                       THEN 1 ELSE 0 END), 0) AS remaining_seats
 FROM schedule sch
-LEFT JOIN ticket t ON sch.id = t.schedule_id
-    AND t.status IN ('已支付', '已检票', '已完成')
+LEFT JOIN seat st ON sch.id = st.schedule_id
 GROUP BY sch.id, sch.total_seats;
 
 -- 视图3: 售票员业绩

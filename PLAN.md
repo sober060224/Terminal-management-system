@@ -175,7 +175,7 @@ Excel 导出 → 打印预览 → 记住登录 7 天 → 密码错 5 次锁定 �
 
 这门课叫**数据库实践**，老师看的是 SQL 本身，不只是功能能跑：
 
-1. **视图 2 个**：`v_schedule_remaining`（班次余票 = total_seats − 已售）、`v_seller_performance`（售票员业绩聚合），
+1. **视图 2 个**：`v_schedule_remaining`（班次余票 = total_seats − 已售 − 未过期的锁定）、`v_seller_performance`（售票员业绩聚合），
    外加 §1 的 `v_seat_state`。报表直接查视图。
 2. **存储过程 1 个**：`sp_generate_schedules(route_id, ship_id, start_date, end_date, price)` ——
    需求 2.2 功能3 的"批量生成班次"，一行调用。

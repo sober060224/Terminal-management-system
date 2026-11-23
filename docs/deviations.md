@@ -55,7 +55,23 @@
 - 需求模块三列了"打印船票（模拟）"，`PLAN.md` 把它划到裁剪项：M3 只做在线购票、退票、改签主链路。
 - 影响：前端没有打印按钮，接口也不返回可打印的票面模板；答辩时按"PLAN 裁剪项"回答，不算漏实现。
 
-## 9. 订单只含单一班次，跨班次同订单并发无法构造
+## 10. 售票员与管理员可以操作任意订单（不限自己的）
 
-- 模型限制：`orders.schedule_id` 只有一个，订单下的票都挂在同一个班次（改签也只换票的班次，不改订单的 `schedule_id`）。
-- 影响：并发验收只能做"同一订单、同一班次"的退票/取消/改签三路并发；"同一订单跨两个班次同时退改"这种场景在当前模型下构造不出来，`verify/concurrency_refund_m3.py` 里已注明。
+- 需求（模块三）：只写了"乘客可退票/改签"，没限定售票员能操作谁的订单。
+- 实现：`OrderService.checkOrderPermission` 只对 `PASSENGER` 校验 `order.passengerId == 当前用户`；`SELLER` 与 `ADMIN` 直接放行，代退/代改签任意乘客的订单。
+- 理由：售票窗口要处理乘客拿纸质票来退改，管理员要处理投诉与对账，渠道限制反而不符合业务；审计靠 `seller_id` 与 `ticket.changed_at`/`refund_time` 留痕。
+
+## 9. 一个订单可以跨两个班次（`orders.schedule_id` 停在初次下单的班次）
+
+- 模型：`orders.schedule_id` 只有一列，且**永远记初次下单的班次**；改签只改 `ticket.schedule_id`，不动订单。所以一张单里可能出现「一张票在班次 A、一张票在班次 B」的形态。
+- 影响：订单详情不能只按订单的班次去查发船时间/船舶，否则改签过的票会显示原班次的发船时间，和票上座位所属班次对不上。现在的口径是：
+  - 详情：`OrderQueryService.detail()` 按每张票自己的 `schedule_id` 批量查班次，票对象带各自的 `departTime`；
+  - 筛选：班次筛选命中「订单原始班次」**或**「任一张票的班次」，跨班次的单在目标班次下也查得到；
+  - 退票手续费：按 `ticket.schedule_id` 指向的班次算（见本文第 3 条）。
+- 并发验收：同班次的三路并发在 `verify/concurrency_refund_m3.py`；跨班次（一票改签到班次 B 后，并发退 A 剩余票与 B 新票）在 `verify/concurrency_cross_schedule_m3.py`，两者都断言 `orders.total_amount` 与票状态无丢失更新。
+
+## 10. 售票员与管理员可以操作任意订单（不限自己的）
+
+- 需求（模块三）：只写了"乘客可退票/改签"，没限定售票员能操作谁的订单。
+- 实现：`OrderService.checkOrderPermission` 只对 `PASSENGER` 校验 `order.passengerId == 当前用户`；`SELLER` 与 `ADMIN` 直接放行，可以代退、代改签任意乘客的订单。
+- 理由：售票窗口要处理乘客拿纸质票来退改，管理员要处理投诉与对账，按账号限制反而不符合业务；操作留痕靠 `seller_id` 与 `ticket.refund_time` / `changed_at`。
