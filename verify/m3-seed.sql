@@ -7,6 +7,10 @@
 --            由 verify-m3.cmd 按 price = 99.99 查出来传给 Python（不再写死 999901）
 --   REBOOK : +3 天 1 小时，票价 120 —— 改签目标（同航线，补差价 +20）
 --   NEARBY : +30 分钟，票价 130 —— 距发船不足 1 小时，改签窗口边界的靶子
+--   MARKER : +3 天，票价 88.88 —— 只用来证明「刚种下的班次能被后端 /api/schedules 看到」，
+--            verify_m3.py 开头的同实例校验断言它出现在列表里
+--            发船时刻与其它种子错开：uk_ship_depart 是 (ship_id, depart_time) 唯一键，
+--            同船同刻只能有一个班次（database.sql:62）。
 USE ferry_system;
 
 INSERT INTO schedule (route_id, ship_id, depart_time, arrive_time, price, total_seats, sold_seats, status)
@@ -18,7 +22,9 @@ VALUES
     (1, 1, NOW() + INTERVAL 3 DAY + INTERVAL 1 HOUR,
             NOW() + INTERVAL 3 DAY + INTERVAL 3 HOUR, 120.00, 32, 0, '售票中'),
     (1, 1, NOW() + INTERVAL 30 MINUTE,
-            NOW() + INTERVAL 2 HOUR + INTERVAL 30 MINUTE, 130.00, 32, 0, '售票中');
+            NOW() + INTERVAL 2 HOUR + INTERVAL 30 MINUTE, 130.00, 32, 0, '售票中'),
+    (1, 1, NOW() + INTERVAL 3 DAY + INTERVAL 2 HOUR,
+            NOW() + INTERVAL 3 DAY + INTERVAL 4 HOUR, 88.88, 32, 0, '售票中');
 
 -- 已发船班次：/api/schedules 会过滤掉它，脚本拿不到 id，所以用 price = 99.99 当标记，
 -- id 走自增，不再占用固定主键（避免和真实数据撞号、避免把 AUTO_INCREMENT 顶高）。

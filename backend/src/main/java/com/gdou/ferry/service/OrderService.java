@@ -34,7 +34,7 @@ import java.util.Set;
  * 模块三核心：下单、支付、取消、退票、改签。
  *
  * 金额口径（PLAN.md D7 / ADR-0004 修订）：
- * orders.total_amount = 该订单当前实收现金净额：支付时写入票面合计，退票时递减实退额，
+ * orders.total_amount = 该订单当前实收现金净额：下单时写入票面合计，退票时递减实退额，
  * 改签时加减差价（新票价 − 原票价）；统计收入直接 SUM(orders.total_amount)。
  *
  * 隔离级别用 READ_COMMITTED：并发靠的是显式行锁（班次 + 订单行），而 MySQL 默认的
@@ -122,7 +122,7 @@ public class OrderService {
                     .orElseThrow(() -> new BizException("座位不存在：" + seat.seatNo(),
                             HttpStatus.NOT_FOUND, ErrorCodes.NOT_FOUND));
             checkSeatFree(entity, now);
-            if (ticketRepository.existsActiveTicket(seat.idCard(), scheduleId)) {
+            if (ticketRepository.existsActiveTicket(seat.idCard(), scheduleId, 0L)) {
                 throw new BizException("乘船人已购买本班次船票（一人一票）",
                         HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
             }
@@ -301,7 +301,7 @@ public class OrderService {
                     HttpStatus.BAD_REQUEST, ErrorCodes.VALIDATION_ERROR);
         }
         checkSeatFree(targetSeat, now);
-        if (ticketRepository.existsActiveTicket(ticket.getIdCard(), targetScheduleId)) {
+        if (ticketRepository.existsActiveTicket(ticket.getIdCard(), targetScheduleId, ticket.getId())) {
             throw new BizException("乘船人已购买目标班次船票（一人一票）",
                 HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
@@ -313,10 +313,8 @@ public class OrderService {
         if (ticketRepository.markRefunded(ticket.getId(), refund, "改签", now) == 0) {
             throw new BizException("只有已支付的船票可以改签", HttpStatus.CONFLICT, ErrorCodes.CONFLICT);
         }
-        ticket.setRefundAmount(refund);
-        ticket.setRefundReason("改签");
-        ticket.setRefundTime(now);
-        ticket.setStatus("已退票");
+        // markRefunded 带 clearAutomatically，库里已是新值、内存里的 ticket 已 detached，
+        // 这里再 set 不会落库（死写），已删除；后续只读 ticket 的 id/price/乘客字段。
         releaseSeat(ticket.getSeatId(), order.getId());
 
         // 订单总额改为新票合计（实收口径：+差价或 −差额）；新票仍是已支付，订单状态不跟着变

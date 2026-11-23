@@ -225,6 +225,12 @@ seller = login("seller1", "seller123")
 admin = login("admin", "admin123")
 
 schedules = list_schedules(passenger)
+
+# --- 0. 同实例校验：seed 刚写进库的班次，后端必须能通过 /api/schedules 看到 ---
+print("\n[0] 同实例校验：刚种下的班次后端能看到")
+check("GET /api/schedules 能看到种子班次（price=88.88 标记）",
+      any(abs(float(s["price"]) - 88.88) < 0.001 for s in schedules), True)
+
 full, within, rebook, nearby = pick_schedules(schedules)
 print(f"测试班次 id: FULL={full['id']} WITHIN={within['id']} REBOOK={rebook['id']} NEARBY={nearby['id']}")
 
@@ -404,8 +410,21 @@ status, body = passenger.post(f"/api/tickets/{tid}/rebook",
                               {"targetScheduleId": nearby["id"], "targetSeatId": target["seatId"]})
 check("目标班次不足 1 小时改签 409", status, 409)
 check("错误提示含 目标班次", "目标班次" in str(body.get("message", "")), True)
-# --- 14. 负向路径：后端校验必须真的在（删掉校验这段就会红） ---
-print("\n[14] 非法输入一律 400，且库里不新增订单")
+# --- 14. 改签到原班次：接口层拒绝，且提示的是「换班次」而不是重复购票 ---
+print("\n[14] 改签到原班次：409 且提示要换班次")
+oid, _ = create_and_pay(passenger, "/api/orders/mine", full["id"], "同班次子", next_id_card())
+order = find_order(passenger, "/api/orders/mine", oid)
+tid = order["tickets"][0]["id"]
+seat = free_seat(passenger, full["id"])
+status, body = passenger.post(f"/api/tickets/{tid}/rebook",
+                              {"targetScheduleId": full["id"], "targetSeatId": seat["seatId"]})
+check("同班次改签 409", status, 409)
+msg = str(body.get("message", ""))
+check("提示含 改签需换班次", "改签需换班次" in msg, True)
+check("不是一人一票的重复购票提示", "已购买目标班次船票" in msg, False)
+
+# --- 15. 负向路径：后端校验必须真的在（删掉校验这段就会红） ---
+print("\n[15] 非法输入一律 400，且库里不新增订单")
 before = order_count(passenger)
 
 def bad(desc, schedule_id, seats):

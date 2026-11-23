@@ -23,10 +23,13 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
 
     /**
      * 一人一票判重：该乘船人在该班次是否已有未作废（非已退票/已取消）的票。
+     * excludeTicketId：改签时传本票 id，把自己排除在外（同班次路径本身已先拦，这里是口径完整）。
+     * 新增下单传 0L（自增主键从 1 开始，0 不会命中任何票）。
      */
     @Query("select count(t) > 0 from Ticket t where t.idCard = :idCard and t.scheduleId = :scheduleId "
-            + "and t.status in ('已支付', '已检票', '已完成')")
-    boolean existsActiveTicket(@Param("idCard") String idCard, @Param("scheduleId") Long scheduleId);
+            + "and t.id <> :excludeTicketId and t.status in ('已支付', '已检票', '已完成')")
+    boolean existsActiveTicket(@Param("idCard") String idCard, @Param("scheduleId") Long scheduleId,
+                               @Param("excludeTicketId") Long excludeTicketId);
 
     /**
      * 退票与改签共用：只有仍是「已支付」的票能落退票流水，重复提交返回 0 行。

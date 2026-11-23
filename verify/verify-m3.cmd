@@ -95,6 +95,10 @@ if defined CODE goto :report
 python "%~dp0concurrency_cross_schedule_m3.py" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
 if defined CODE goto :report
+REM Refund fee second-level boundary: 2:00:01 / 2:00:00 / 1:59:59 against a real HTTP call.
+python "%~dp0fare_boundary_m3.py" >> "%LOG%" 2>&1
+if errorlevel 1 set "CODE=1"
+if defined CODE goto :report
 "%MYSQL_BIN%" %OPTS% < "%~dp0m3_view_check.sql" >> "%LOG%" 2>&1
 if errorlevel 1 set "CODE=1"
 REM Leak counters: run twice and compare; these numbers must not grow (seeded rows excepted).

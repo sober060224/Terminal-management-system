@@ -180,9 +180,9 @@ class OrderServiceTest {
         Ticket newTicket = service.rebookTicket(10L, 2L, 20L, passenger);
 
         assertEquals(0, new BigDecimal("120.00").compareTo(order.getTotalAmount()));
-        // 只补不退：原票 refund_amount 记 0（实际退回现金为 0）
-        assertEquals(0, BigDecimal.ZERO.compareTo(ticket.getRefundAmount()));
-        assertEquals("改签", ticket.getRefundReason());
+        // 只补不退：原票 refund_amount 记 0（实际退回现金为 0）。
+        // markRefunded 是 bulk update，内存里的 ticket 不再带回退票字段，断言条件更新收到的参数。
+        verify(ticketRepository).markRefunded(eq(10L), eq(BigDecimal.ZERO), eq("改签"), any());
         assertEquals(0, new BigDecimal("120.00").compareTo(newTicket.getPrice()));
         assertEquals(10L, newTicket.getChangedFromTicketId());
         assertEquals("13800138000", newTicket.getPhone());
@@ -199,7 +199,7 @@ class OrderServiceTest {
         service.rebookTicket(10L, 2L, 20L, passenger);
 
         // 多退少补退差额：原票实退 20，订单总额 100 → 80
-        assertEquals(0, new BigDecimal("20.00").compareTo(ticket.getRefundAmount()));
+        verify(ticketRepository).markRefunded(eq(10L), eq(new BigDecimal("20.00")), eq("改签"), any());
         assertEquals(0, new BigDecimal("80.00").compareTo(order.getTotalAmount()));
     }
 
@@ -287,7 +287,7 @@ class OrderServiceTest {
         when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, target));
         when(seatRepository.findById(20L)).thenReturn(Optional.of(targetSeat));
-        when(ticketRepository.existsActiveTicket(anyString(), anyLong())).thenReturn(false);
+        when(ticketRepository.existsActiveTicket(anyString(), anyLong(), anyLong())).thenReturn(false);
         when(seatRepository.sellTargetSeat(anyLong(), anyLong(), anyLong())).thenReturn(1);
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
         when(ticketRepository.save(any(Ticket.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -430,7 +430,7 @@ class OrderServiceTest {
         when(ordersRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(order));
         when(scheduleLock.lockAll(anyLong(), anyLong())).thenReturn(Map.of(1L, origin, 2L, targetSchedule));
         when(seatRepository.findById(20L)).thenReturn(Optional.of(seat));
-        when(ticketRepository.existsActiveTicket(anyString(), anyLong())).thenReturn(false);
+        when(ticketRepository.existsActiveTicket(anyString(), anyLong(), anyLong())).thenReturn(false);
         when(seatRepository.sellTargetSeat(anyLong(), anyLong(), anyLong())).thenReturn(seatRows);
         when(ticketRepository.markRefunded(anyLong(), any(), anyString(), any())).thenReturn(1);
         // 红/绿两个方向共用这个助手：失败路径走不到保存，按 lenient 声明
