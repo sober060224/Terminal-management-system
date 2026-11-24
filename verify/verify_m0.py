@@ -153,6 +153,12 @@ check("用户名长度错误码 VALIDATION_ERROR", body.get("code"), "VALIDATION
 
 op = Client()
 op.seed_csrf()
+st, body = op.post("/api/auth/login", {"username": BADNAME, "password": PASSWORD})
+check("3 字符用户名登录 400", st, 400)
+check("登录用户名长度错误码 VALIDATION_ERROR", body.get("code"), "VALIDATION_ERROR")
+
+op = Client()
+op.seed_csrf()
 bad = new_passenger()
 bad["username"] = BADPHONE
 bad["phone"] = "123"
@@ -198,6 +204,16 @@ op.seed_csrf()
 st, body = op.post("/api/auth/login", {"username": "admin", "password": "wrongpass"})
 check("错误密码 401", st, 401)
 check("登录失败错误码 AUTH_FAILED", body.get("code"), "AUTH_FAILED")
+
+op = Client()
+op.seed_csrf()
+st, body = op.post("/api/auth/login", {"username": "admin", "password": "admin123"})
+check("失败重登录前置登录 200", st, 200)
+st, body = op.post("/api/auth/login", {"username": "admin", "password": "wrongpass"})
+check("失败重登录 401", st, 401)
+st, body = op.get_json("/api/auth/current")
+check("失败重登录后旧 Session 401", st, 401)
+check("失败重登录后错误码 NOT_LOGGED_IN", body.get("code"), "NOT_LOGGED_IN")
 
 # --- 2.1 Remember Me ---
 print("\n[2.1] Remember Me")
