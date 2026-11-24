@@ -40,6 +40,13 @@ BEGIN
 END$$
 DELIMITER ;
 CALL assert_view_revenue();
+
+-- 角色变更后历史订单仍应计入该账号业绩，不能再用当前 user.role 排除历史经手人。
+UPDATE user SET role = 'PASSENGER' WHERE id = @seller_id;
+SET @actual = (SELECT total_revenue FROM v_seller_performance WHERE seller_id = @seller_id);
+SELECT '角色变更后仍保留历史业绩' AS 检查项, @actual AS 实际值, 20 AS 期望值;
+CALL assert_view_revenue();
+
 DROP PROCEDURE assert_view_revenue;
 
 DELETE FROM ticket WHERE order_id = @order_id;

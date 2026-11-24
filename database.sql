@@ -185,6 +185,7 @@ GROUP BY sch.id, sch.total_seats;
 -- 视图3: 售票员业绩
 -- 收入取 SUM(orders.total_amount)：该字段是订单当前实收金额（退票递减、改签改为新票合计），
 -- 直接对订单求和即可，不绕票表。订单数与票数用子查询分开统计，避免 JOIN 扇出。
+-- 当前 SELLER 保留零业绩行；曾经产生订单的账号按 orders.seller_id 保留，避免角色变更后历史业绩丢失。
 CREATE OR REPLACE VIEW v_seller_performance AS
 SELECT
     u.id AS seller_id,
@@ -200,7 +201,8 @@ SELECT
         AND o3.pay_time IS NOT NULL
         AND o3.status <> '已取消') AS total_revenue
 FROM user u
-WHERE u.role = 'SELLER';
+WHERE u.role = 'SELLER'
+   OR EXISTS (SELECT 1 FROM orders o_seller WHERE o_seller.seller_id = u.id);
 
 -- ====================
 -- 3. 存储过程（加分项）

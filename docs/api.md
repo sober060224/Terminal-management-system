@@ -338,7 +338,7 @@ Cookie: JSESSIONID=...
 | `role` | string | 角色：`ADMIN` / `SELLER` / `PASSENGER` |
 | `name` | string | 真实姓名 |
 | `phone` | string | 手机号 |
-| `status` | string | 状态：`ACTIVE` / `DISABLED` / `PENDING` |
+| `status` | string | 状态：`ACTIVE` / `DISABLED` / `PENDING` / `REJECTED` |
 | `createTime` | string | 注册时间，`yyyy-MM-ddTHH:mm:ss`（本地时区 `Asia/Shanghai`，秒级，无小数位） |
 
 **注意**: `password` 和 `idCard` 永远不出现在响应中。
@@ -722,6 +722,70 @@ hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局
 | `NOT_FOUND` | 404 | 班次不存在 / 座位不存在：A1 / 船票不存在 / 订单不存在 / 原班次不存在 / 目标座位不存在 |
 | `VALIDATION_ERROR` | 400 | 参数校验失败（`@Valid`，如身份证号必须为 18 位、手机号不合法、单订单超过 5 张票）/ 座位号重复：A1 / 同一订单内乘船人身份证号不能重复 / 目标座位与目标班次不匹配 / 退票原因不合法：xxx / 请求体不是合法 JSON / 请求参数格式不正确 |
 | `FORBIDDEN` | 403 | 只能操作自己的订单 |
+
+## 8. 跨模块基础契约（模块一预留）
+
+本节冻结模块一为模块二、四、五提供的命名和共享类型。`/api/schedules` 和 `/api/orders/mine` 已有实现，下文按“已有接口”标注；其余列出的路径是后续模块契约，不创建空接口或占位页面。
+
+### 8.1 当前身份与只读用户目录
+
+后续模块的当前用户 ID 只能从登录上下文取得，不能接受请求体伪造的 `sellerId` 或 `userId`。模块四的检票员身份和模块五的售票员身份均按此规则处理。
+
+`UserDirectoryService` 是后端内部只读服务，模块四、五通过依赖注入使用，本阶段不新增公开的 `GET /api/users` 接口。
+
+| 方法 | 返回 | 说明 |
+|---|---|---|
+| `findById(Long)` | `Optional<UserReference>` | 单个用户；不存在时返回空 |
+| `findAllByIds(Collection<Long>)` | `List<UserReference>` | 批量解析，单次数据库查询 |
+| `findByRole(Role)` | `List<UserReference>` | 按角色查询，包含非 `ACTIVE` 用户 |
+
+`UserReference` 固定字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 用户 ID |
+| `username` | string | 登录名 |
+| `name` | string | 当前显示姓名 |
+| `role` | `ADMIN` / `SELLER` / `PASSENGER` | 当前角色 |
+| `status` | `ACTIVE` / `DISABLED` / `PENDING` / `REJECTED` | 当前状态 |
+
+用户目录不返回手机号、身份证号、密码或密码哈希。默认包含 `DISABLED` 用户，保证历史订单、船票、检票和报表仍能解析人员；姓名按当前资料显示，不维护姓名历史表。
+
+### 8.2 模块二：航线、船舶与班次
+
+模块二管理接口只允许 `ADMIN` 写入；售票员和乘客只读。
+
+| 类型 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| 管理 | `/api/admin/routes/**` | `ADMIN` | 航线维护 |
+| 管理 | `/api/admin/ships/**` | `ADMIN` | 船舶维护 |
+| 管理 | `/api/admin/schedules/**` | `ADMIN` | 班次维护 |
+| 只读 | `/api/routes` | 已登录 | 航线列表 |
+| 只读 | `/api/ships` | 已登录 | 船舶列表 |
+| 只读 | `/api/schedules` | 已登录 | 已有接口；只返回 `status='售票中'` 且未发船的班次 |
+
+前端预留入口为 `/admin/routes`、`/admin/ships`、`/admin/schedules`，只在模块二页面和路由真实完成后加入 `navigation.js`。
+
+模块二向模块四、五提供以下只读引用：
+
+| DTO | 固定字段 |
+|---|---|
+| `RouteReference` | `id`、`routeName`、`startPort`、`endPort`、`status` |
+| `ShipReference` | `id`、`shipName`、`totalSeats`、`shipType`、`status` |
+| `ScheduleReference` | `id`、`routeId`、`shipId`、`departTime`、`arriveTime`、`price`、`status`、`routeName`、`shipName` |
+
+`ScheduleReference` 的 `routeName`、`shipName` 是展示补充字段，可为空；其余字段是稳定标识。引用 DTO 不包含用户敏感信息。
+
+### 8.3 模块四、五：检票与报表
+
+| 模块 | 路径 | 权限 | 状态与说明 |
+|---|---|---|---|
+| 模块四 | `/api/seller/check-ins` | `SELLER` / `ADMIN` | 预留；检票执行与检票记录 |
+| 模块四 | `/api/orders/mine` | 已登录 | 已有接口；复用订单 / 船票视图 |
+| 模块五 | `/api/seller/performance` | `SELLER` / `ADMIN` | 预留；仅返回登录人的个人业绩，不接收 `sellerId` |
+| 模块五 | `/api/admin/reports/**` | `ADMIN` | 预留；全站统计和售票员排名 |
+
+模块四、五的当前用户 ID 只能从登录上下文取得。检票记录以 `check_in.seller_id` 为人员事实，销售业绩以 `orders.seller_id` 为人员事实；通过 `UserReference` 解析姓名，但不根据当前 `user.role` 反推历史身份。`/api/seller/performance` 的 `ADMIN` 调用同样只看登录人本人；管理员查看全站售票员排名使用 `/api/admin/reports/**`。
 
 ---
 
