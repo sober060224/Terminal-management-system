@@ -14,7 +14,7 @@ public class AuthForms {
      */
     public record RegisterRequest(
             @NotBlank(message = "用户名不能为空")
-            @Size(min = 3, max = 50, message = "用户名长度为3-50字符")
+            @Size(min = 4, max = 20, message = "用户名长度为4-20字符")
             String username,
 
             @NotBlank(message = "密码不能为空")
@@ -41,6 +41,8 @@ public class AuthForms {
             String username,
 
             @NotBlank(message = "密码不能为空")
-            String password
+            String password,
+
+            boolean rememberMe
     ) {}
 }

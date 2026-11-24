@@ -20,6 +20,7 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.RememberMeServices;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,15 +44,18 @@ public class AuthController {
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
+    private final RememberMeServices rememberMeServices;
     private final UserRepository userRepository;
     private final UserService userService;
 
     public AuthController(AuthenticationManager authenticationManager,
                           SecurityContextRepository securityContextRepository,
+                          RememberMeServices rememberMeServices,
                           UserRepository userRepository,
                           UserService userService) {
         this.authenticationManager = authenticationManager;
         this.securityContextRepository = securityContextRepository;
+        this.rememberMeServices = rememberMeServices;
         this.userRepository = userRepository;
         this.userService = userService;
     }
@@ -83,6 +87,8 @@ public class AuthController {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(form.username(), form.password()));
         } catch (AuthenticationException ex) {
+            // 登录失败同时清掉旧的 Remember Me Cookie，避免旧凭据继续自动登录。
+            rememberMeServices.loginFail(request, response);
             // 凭据类异常压成同一句话：口令错、用户不存在都不能区分，否则就成了账号枚举接口。
             // 但「账号禁用」不是凭据问题，保留原异常交给 GlobalExceptionHandler 回 403 + 准确提示。
             if (ex instanceof DisabledException) {
@@ -100,6 +106,12 @@ public class AuthController {
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
         securityContextRepository.saveContext(context, request, response);
+
+        if (form.rememberMe()) {
+            rememberMeServices.loginSuccess(request, response, authentication);
+        } else {
+            rememberMeServices.loginFail(request, response);
+        }
 
         LoginUser loginUser = (LoginUser) authentication.getPrincipal();
         return Result.ok("登录成功", profileOf(userRepository.findById(loginUser.getId())
@@ -123,6 +135,7 @@ public class AuthController {
         map.put("role", user.getRole() == null ? null : user.getRole().name());
         map.put("name", user.getName());
         map.put("phone", user.getPhone());
+        map.put("idCard", user.getIdCard());
         map.put("status", user.getStatus() == null ? null : user.getStatus().name());
         map.put("createTime", user.getCreateTime());
         return map;

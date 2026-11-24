@@ -142,7 +142,7 @@ Content-Type: application/json
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `username` | string | 是 | 登录账号，唯一，3-50字符 |
+| `username` | string | 是 | 登录账号，唯一，4-20字符 |
 | `password` | string | 是 | 密码，6-50字符 |
 | `name` | string | 是 | 真实姓名 |
 | `phone` | string | 是 | 手机号，11位数字 |
@@ -160,6 +160,7 @@ Content-Type: application/json
     "role": "PASSENGER",
     "name": "王乘客",
     "phone": "13800138000",
+    "idCard": "440100199001010015",
     "status": "ACTIVE",
     "createTime": "2026-11-20T21:18:25"
   },
@@ -203,7 +204,8 @@ Content-Type: application/json
 ```json
 {
   "username": "admin",
-  "password": "admin123"
+  "password": "admin123",
+  "rememberMe": true
 }
 ```
 
@@ -213,6 +215,7 @@ Content-Type: application/json
 |------|------|------|------|
 | `username` | string | 是 | 登录账号 |
 | `password` | string | 是 | 密码 |
+| `rememberMe` | boolean | 否 | 是否记住登录，默认 `false`；为 `true` 时签发 7 天 Remember Me Cookie |
 
 **成功响应** (200)
 
@@ -226,6 +229,7 @@ Content-Type: application/json
     "role": "ADMIN",
     "name": "系统管理员",
     "phone": "13900139000",
+    "idCard": "440100199001011001",
     "status": "ACTIVE",
     "createTime": "2026-11-20T21:18:25"
   },
@@ -233,7 +237,8 @@ Content-Type: application/json
 }
 ```
 
-响应头会设置 `Set-Cookie: JSESSIONID=...; Path=/; HttpOnly; SameSite=Lax`
+响应头会设置 `Set-Cookie: JSESSIONID=...; Path=/; HttpOnly; SameSite=Lax`。
+当 `rememberMe=true` 时，还会设置 `FERRY_REMEMBER_ME` Cookie，有效期为 7 天；该 Cookie 使用 `FERRY_REMEMBER_ME_KEY` 签名，密码变化后旧 Cookie 及旧 Session 在下一次请求时失效。
 
 **失败响应**
 
@@ -280,6 +285,7 @@ Cookie: JSESSIONID=...
     "role": "ADMIN",
     "name": "系统管理员",
     "phone": "13900139000",
+    "idCard": "440100199001011001",
     "status": "ACTIVE",
     "createTime": "2026-11-20T21:18:25"
   },
@@ -321,7 +327,7 @@ Cookie: JSESSIONID=...
 }
 ```
 
-响应会清除 session cookie。
+响应会清除 Session、`JSESSIONID`、`XSRF-TOKEN` 和 `FERRY_REMEMBER_ME` Cookie。
 
 ---
 
@@ -329,7 +335,7 @@ Cookie: JSESSIONID=...
 
 ### UserDTO
 
-用户信息返回对象，不含敏感字段。
+用户信息返回对象；`password` 永不返回。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -338,10 +344,11 @@ Cookie: JSESSIONID=...
 | `role` | string | 角色：`ADMIN` / `SELLER` / `PASSENGER` |
 | `name` | string | 真实姓名 |
 | `phone` | string | 手机号 |
-| `status` | string | 状态：`ACTIVE` / `DISABLED` / `PENDING` |
+| `idCard` | string | 身份证号；仅在返回本人资料时出现（注册、登录、current） |
+| `status` | string | 状态：`ACTIVE` / `DISABLED` / `PENDING` / `REJECTED` |
 | `createTime` | string | 注册时间，`yyyy-MM-ddTHH:mm:ss`（本地时区 `Asia/Shanghai`，秒级，无小数位） |
 
-**注意**: `password` 和 `idCard` 永远不出现在响应中。
+**注意**: `password` 永远不出现在响应中；`idCard` 仅在注册、登录、current 返回本人资料时出现，不对其他用户公开。
 
 ---
 
@@ -363,7 +370,7 @@ axios.defaults.xsrfHeaderName = 'X-XSRF-TOKEN';
 
 ### 5.1 令牌生命周期（登出会让令牌失效）
 
-`POST /api/auth/logout` 会 `deleteCookies(JSESSIONID, XSRF-TOKEN)`，响应里不再有新的令牌。
+`POST /api/auth/logout` 会清除 Session、`JSESSIONID`、`XSRF-TOKEN` 和 `FERRY_REMEMBER_ME` Cookie，响应里不再有新的令牌。
 因此**登出后不能再复用之前取到的令牌**：同一个 SPA 里「退出登录 → 换账号登录」时，前端
 必须先重新 `GET /api/auth/csrf`，否则登录请求没有 `X-XSRF-TOKEN` 头，后端会回 403
 `FORBIDDEN`（而不是 401 —— 这属于 CSRF 校验失败，不是认证失败）。

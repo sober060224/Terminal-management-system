@@ -18,7 +18,7 @@
 
 ## 跑起来
 
-Windows 上双击 `start.cmd` 就能起整套（MySQL + 后端 8089），双击 `stop.cmd` 停掉。
+Windows 上先设置 `FERRY_REMEMBER_ME_KEY`（系统/用户环境变量，或启动 `start.cmd` 的终端），再启动整套（MySQL + 后端 8089），用 `stop.cmd` 停掉。
 下面是手动步骤，脚本只是把它们串起来。
 
 ### 1. 建库
@@ -32,7 +32,8 @@ mysql -u root -p --default-character-set=utf8mb4 < database.sql
 
 `start.cmd` 会先探测 3306 / 3307 哪个 MySQL 在跑，必要时拉起工作区自建实例，再起后端。
 
-```bash
+```powershell
+$env:FERRY_REMEMBER_ME_KEY = '<稳定随机值>'
 cd backend
 mvnw.cmd -B -o compile
 mvnw.cmd -B -o dependency:build-classpath -Dmdep.outputFile=target/cp.txt
@@ -41,6 +42,7 @@ run.cmd
 
 `run.cmd` 直接用 `java` 启动（classpath 走 argfile），因为本机 `~/.m2` 里缺 `spring-boot-maven-plugin` 的离线依赖。
 数据库连接读环境变量 `DB_USERNAME`（默认 root）、`DB_PASSWORD`；端口用 `DB_PORT`（默认 3306）。
+Remember Me 使用 `FERRY_REMEMBER_ME_KEY` 作为签名密钥，必须设置稳定值；未设置时后端拒绝启动。
 `stop.cmd` / `stop.ps1` 一键停后端（8089）和自建 MySQL 实例（3307），不碰系统 MySQL80 服务。
 
 ### 3. 起前端（端口 5174）
@@ -81,6 +83,7 @@ Chrome / Edge，没设置 `FERRY_CHROME` 时用 Playwright 自带 Chromium。
 | 变量 | 用途 | 默认 |
 |---|---|---|
 | `FERRY_MYSQL_BIN` | `mysql` 客户端完整路径 | PATH 里的 `mysql` |
+| `FERRY_REMEMBER_ME_KEY` | Remember Me 签名密钥 | 无（必填，部署时使用稳定随机值） |
 | `FERRY_CHROME` | 浏览器可执行文件完整路径 | Playwright 自带 Chromium |
 | `DB_PORT` | MySQL 端口 | 自动探测 3306 / 3307 |
 | `DB_PASSWORD` | MySQL root 密码 | 无（必填） |
