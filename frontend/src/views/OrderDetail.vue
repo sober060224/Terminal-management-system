@@ -59,13 +59,15 @@ onMounted(load)
                 <el-descriptions-item label="支付时间">{{ order.payTime || '未支付' }}</el-descriptions-item>
             </el-descriptions>
 
-            <div class="section-title">船票信息（改签过的票按各自班次显示发船时间）</div>
+            <div class="section-title">船票信息（改签过的票按各自班次显示航线、船舶与发船时间）</div>
             <el-table :data="order.tickets" border size="small">
                 <el-table-column prop="seatNo" label="座位号" width="90" />
                 <el-table-column prop="passengerName" label="乘船人" width="100" />
                 <el-table-column prop="idCard" label="身份证号" width="180" />
                 <el-table-column prop="phone" label="手机号" width="130" />
                 <el-table-column prop="price" label="票价" width="80" />
+                <el-table-column prop="routeName" label="航线" min-width="120" />
+                <el-table-column prop="shipName" label="船舶" width="110" />
                 <el-table-column prop="departTime" label="发船时间" min-width="160" />
                 <el-table-column prop="status" label="票状态" width="90">
                     <template #default="{ row }">

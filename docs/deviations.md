@@ -60,7 +60,7 @@
 
 - 模型：`orders.schedule_id` 只有一列，且**永远记初次下单的班次**；改签只改 `ticket.schedule_id`，不动订单。所以一张单里可能出现「一张票在班次 A、一张票在班次 B」的形态。
 - 影响：订单详情不能只按订单的班次去查发船时间/船舶，否则改签过的票会显示原班次的发船时间，和票上座位所属班次对不上。现在的口径是：
-  - 详情：`OrderQueryService.detail()` 按每张票自己的 `schedule_id` 批量查班次，票对象带各自的 `departTime`；
+  - 详情：`OrderQueryService.detail()` 按每张票自己的 `schedule_id` 批量查班次、航线、船舶，票对象带各自的 `departTime`／`routeName`／`shipName`（改签到同航线另一条船的票，详情页显示的就是新船）；
   - 筛选：班次筛选命中「订单原始班次」**或**「任一张票的班次」，跨班次的单在目标班次下也查得到；
   - 退票手续费：按 `ticket.schedule_id` 指向的班次算（见本文第 3 条）。
 - 并发验收：同班次的三路并发在 `verify/concurrency_refund_m3.py`；跨班次（一票改签到班次 B 后，并发退 A 剩余票与 B 新票）在 `verify/concurrency_cross_schedule_m3.py`，两者都断言 `orders.total_amount` 与票状态无丢失更新。

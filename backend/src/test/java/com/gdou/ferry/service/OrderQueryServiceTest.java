@@ -3,7 +3,9 @@ package com.gdou.ferry.service;
 import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.entity.Orders;
 import com.gdou.ferry.entity.Role;
+import com.gdou.ferry.entity.Route;
 import com.gdou.ferry.entity.Schedule;
+import com.gdou.ferry.entity.Ship;
 import com.gdou.ferry.entity.Ticket;
 import com.gdou.ferry.entity.User;
 import com.gdou.ferry.entity.UserStatus;
@@ -116,6 +118,43 @@ class OrderQueryServiceTest {
 
         // 改签后的票显示的是新班次时间，不能跟着订单原始班次走
         assertEquals(origin.getDepartTime(), detail.tickets().get(0).departTime());
+        assertEquals(target.getDepartTime(), detail.tickets().get(1).departTime());
+    }
+
+    @Test
+    void 详情按每张票各自的班次返回航线与船舶() {
+        Orders order = order(1L, 2L, 99L);
+        Schedule origin = schedule(2L, 7L, LocalDateTime.of(2026, 11, 21, 18, 0));
+        origin.setShipId(5L);
+        Schedule target = schedule(3L, 7L, LocalDateTime.of(2026, 11, 22, 15, 0));
+        target.setShipId(8L);
+
+        Route route = new Route();
+        route.setId(7L);
+        route.setRouteName("广州-香港");
+        Ship oldShip = new Ship();
+        oldShip.setId(5L);
+        oldShip.setShipName("粤港01");
+        Ship newShip = new Ship();
+        newShip.setId(8L);
+        newShip.setShipName("粤港02");
+
+        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(ticketRepository.findByOrderIdOrderByIdAsc(1L)).thenReturn(List.of(ticket(10L, 1L, 2L), ticket(11L, 1L, 3L)));
+        when(seatRepository.findAllById(List.of(11L, 12L))).thenReturn(List.of());
+        when(scheduleRepository.findById(2L)).thenReturn(Optional.of(origin));
+        when(scheduleRepository.findAllById(List.of(2L, 3L))).thenReturn(List.of(origin, target));
+        when(routeRepository.findById(7L)).thenReturn(Optional.of(route));
+        when(routeRepository.findAllById(List.of(7L))).thenReturn(List.of(route));
+        when(shipRepository.findById(5L)).thenReturn(Optional.of(oldShip));
+        when(shipRepository.findAllById(List.of(5L, 8L))).thenReturn(List.of(oldShip, newShip));
+
+        var detail = service.detail(1L, user(99L, Role.PASSENGER));
+
+        // 改签到同航线另一条船：票上必须是新船，不能跟着订单原始班次显示旧船
+        assertEquals("粤港01", detail.tickets().get(0).shipName());
+        assertEquals("粤港02", detail.tickets().get(1).shipName());
+        assertEquals("广州-香港", detail.tickets().get(1).routeName());
         assertEquals(target.getDepartTime(), detail.tickets().get(1).departTime());
     }
 

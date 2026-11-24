@@ -89,10 +89,18 @@ public class OrderQueryService {
         Ship ship = schedule == null ? null
                 : shipRepository.findById(schedule.getShipId()).orElse(null);
         List<Ticket> tickets = ticketRepository.findByOrderIdOrderByIdAsc(orderId);
-        // 改签会让同一订单的票分属两个班次，改签后的票要看目标班次的发船时间
+        // 改签会让同一订单的票分属两个班次：票级发船时间/航线/船舶都按票自己的班次查（P1-3）
         Map<Long, Schedule> ticketSchedules = new HashMap<>();
         scheduleRepository.findAllById(tickets.stream().map(Ticket::getScheduleId).distinct().toList())
                 .forEach(s -> ticketSchedules.put(s.getId(), s));
+        Map<Long, Route> ticketRoutes = new HashMap<>();
+        routeRepository.findAllById(ticketSchedules.values().stream()
+                        .map(Schedule::getRouteId).distinct().toList())
+                .forEach(r -> ticketRoutes.put(r.getId(), r));
+        Map<Long, Ship> ticketShips = new HashMap<>();
+        shipRepository.findAllById(ticketSchedules.values().stream()
+                        .map(Schedule::getShipId).distinct().toList())
+                .forEach(s -> ticketShips.put(s.getId(), s));
         Map<Long, String> seatNos = seatRepository
                 .findAllById(tickets.stream().map(Ticket::getSeatId).toList()).stream()
                 .collect(Collectors.toMap(Seat::getId, Seat::getSeatNo));
@@ -108,8 +116,12 @@ public class OrderQueryService {
                 schedule == null ? null : schedule.getArriveTime(),
                 tickets.stream().map(t -> {
                     Schedule ticketSchedule = ticketSchedules.get(t.getScheduleId());
+                    Route ticketRoute = ticketSchedule == null ? null : ticketRoutes.get(ticketSchedule.getRouteId());
+                    Ship ticketShip = ticketSchedule == null ? null : ticketShips.get(ticketSchedule.getShipId());
                     return TicketView.of(t, seatNos.get(t.getSeatId()),
-                            ticketSchedule == null ? null : ticketSchedule.getDepartTime());
+                            departTimeOf(ticketSchedule),
+                            ticketRoute == null ? null : ticketRoute.getRouteName(),
+                            ticketShip == null ? null : ticketShip.getShipName());
                 }).toList());
     }
 
