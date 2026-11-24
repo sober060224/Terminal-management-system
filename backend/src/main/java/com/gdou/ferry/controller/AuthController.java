@@ -11,8 +11,10 @@ import com.gdou.ferry.repository.UserRepository;
 import com.gdou.ferry.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationServiceException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -87,12 +89,16 @@ public class AuthController {
             authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(form.username(), form.password()));
         } catch (AuthenticationException ex) {
-            // 登录失败同时清掉旧的 Remember Me Cookie，避免旧凭据继续自动登录。
-            rememberMeServices.loginFail(request, response);
+            // 登录失败必须先退出已有身份，避免 401 后旧 Session 仍可访问接口。
+            clearAuthenticationState(request, response);
             // 凭据类异常压成同一句话：口令错、用户不存在都不能区分，否则就成了账号枚举接口。
             // 但「账号禁用」不是凭据问题，保留原异常交给 GlobalExceptionHandler 回 403 + 准确提示。
             if (ex instanceof DisabledException) {
                 throw ex;
+            }
+            if (ex instanceof AuthenticationServiceException) {
+                throw new BizException("认证服务暂时不可用，请稍后重试",
+                        HttpStatus.INTERNAL_SERVER_ERROR, ex, ErrorCodes.SERVER_ERROR);
             }
             throw new BizException("用户名或密码错误", HttpStatus.UNAUTHORIZED, ex, ErrorCodes.AUTH_FAILED);
         }
@@ -125,6 +131,15 @@ public class AuthController {
         }
         return Result.ok(profileOf(userRepository.findById(loginUser.getId())
                 .orElseThrow(() -> new BizException("用户不存在"))));
+    }
+
+    private void clearAuthenticationState(HttpServletRequest request, HttpServletResponse response) {
+        SecurityContextHolder.clearContext();
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.invalidate();
+        }
+        rememberMeServices.loginFail(request, response);
     }
 
     /** 只回前端要用的字段，密码绝不外泄。 */

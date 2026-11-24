@@ -213,7 +213,7 @@ Content-Type: application/json
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `username` | string | 是 | 登录账号 |
+| `username` | string | 是 | 登录账号，4-20字符 |
 | `password` | string | 是 | 密码 |
 | `rememberMe` | boolean | 否 | 是否记住登录，默认 `false`；为 `true` 时签发 7 天 Remember Me Cookie |
 
@@ -259,6 +259,16 @@ Content-Type: application/json
   "message": "账号已被禁用",
   "data": null,
   "code": "FORBIDDEN"
+}
+```
+
+- 认证服务暂时不可用 (500):
+```json
+{
+  "success": false,
+  "message": "认证服务暂时不可用，请稍后重试",
+  "data": null,
+  "code": "SERVER_ERROR"
 }
 ```
 

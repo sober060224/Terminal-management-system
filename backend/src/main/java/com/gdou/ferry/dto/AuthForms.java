@@ -38,6 +38,7 @@ public class AuthForms {
      */
     public record LoginRequest(
             @NotBlank(message = "用户名不能为空")
+            @Size(min = 4, max = 20, message = "用户名长度为4-20字符")
             String username,
 
             @NotBlank(message = "密码不能为空")

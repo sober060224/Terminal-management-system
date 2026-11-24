@@ -29,6 +29,14 @@ class AuthFormsValidationTest {
         assertFalse(validator.validate(form("a".repeat(21))).isEmpty());
     }
 
+    @Test
+    void loginUsernameMustAlsoBeFourToTwentyCharacters() {
+        assertFalse(validator.validate(loginForm("abc")).isEmpty());
+        assertTrue(validator.validate(loginForm("abcd")).isEmpty());
+        assertTrue(validator.validate(loginForm("a".repeat(20))).isEmpty());
+        assertFalse(validator.validate(loginForm("a".repeat(21))).isEmpty());
+    }
+
     private AuthForms.RegisterRequest form(String username) {
         return new AuthForms.RegisterRequest(
                 username,
@@ -37,5 +45,9 @@ class AuthFormsValidationTest {
                 "13800138000",
                 "440100199001010015"
         );
+    }
+
+    private AuthForms.LoginRequest loginForm(String username) {
+        return new AuthForms.LoginRequest(username, "123456", false);
     }
 }
