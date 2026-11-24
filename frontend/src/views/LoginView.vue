@@ -42,7 +42,7 @@ async function submit() {
 
             <el-form label-position="top" @submit.prevent="submit">
                 <el-form-item label="用户名">
-                    <el-input v-model="form.username" placeholder="用户名" autocomplete="username"/>
+                    <el-input v-model="form.username" placeholder="用户名（4-20 字符）" autocomplete="username" minlength="4" maxlength="20"/>
                 </el-form-item>
                 <el-form-item label="密码">
                     <el-input

@@ -27,7 +27,7 @@ export const useUserStore = defineStore('user', {
     },
 
     actions: {
-        // 刷新页面后先用会话向服务端确认身份，失败说明未登录
+        // 刷新页面后先用会话向服务端确认身份；只有 401 才是确定未登录
         async load() {
             if (this.loaded || this.checked) {
                 return this.profile

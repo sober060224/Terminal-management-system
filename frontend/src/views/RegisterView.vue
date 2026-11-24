@@ -49,7 +49,7 @@ async function submit() {
 
             <el-form label-position="top" @submit.prevent="submit">
                 <el-form-item label="用户名" required>
-                    <el-input v-model="form.username" placeholder="用于登录"/>
+                    <el-input v-model="form.username" placeholder="4-20 字符，用于登录" minlength="4" maxlength="20"/>
                 </el-form-item>
                 <el-form-item label="密码" required>
                     <el-input v-model="form.password" type="password" show-password/>
