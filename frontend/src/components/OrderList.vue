@@ -129,10 +129,12 @@ function openRebook(ticket, order) {
 
 // 抛给父组件：失败时弹窗不关、已选班次和座位都保留（见 RebookDialog.confirm）
 async function onRebookDone(payload) {
-    return props.api.rebook(payload.ticketId, {
+    await props.api.rebook(payload.ticketId, {
         targetScheduleId: payload.targetScheduleId,
         targetSeatId: payload.targetSeatId
     })
+    // 改签成功后列表要重载，否则行里还是旧票状态
+    load()
 }
 
 function statusType(status) {
