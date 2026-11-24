@@ -4,6 +4,11 @@ REM Uses DB_PORT as given, else system MySQL on 3306 if it is up, else the repo-
 REM mysqld is looked up via FERRY_MYSQL_HOME, then PATH, then the usual install dirs.
 REM Keep comments ASCII: cmd.exe reads this file as GBK.
 setlocal
+if not defined FERRY_REMEMBER_ME_KEY (
+  echo [ERROR] FERRY_REMEMBER_ME_KEY is not set.
+  echo Set a stable random value before starting the backend.
+  exit /b 1
+)
 set "CODE=0"
 set NETFILE=%TEMP%\ferry_net.txt
 netstat -ano > "%NETFILE%"

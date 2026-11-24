@@ -52,6 +52,16 @@ describe('user store', () => {
         expect(store.isLogin).toBe(true)
     })
 
+    it('登录时把 rememberMe 原样传给接口', async () => {
+        authApi.login.mockResolvedValue({ success: true, message: 'ok', data: { id: 1, username: 'admin', role: 'ADMIN' } })
+        const store = useUserStore()
+        const form = { username: 'admin', password: 'secret', rememberMe: true }
+
+        await store.login(form)
+
+        expect(authApi.login).toHaveBeenCalledWith(form)
+    })
+
     it('登录失败会清掉旧快照', async () => {
         const store = useUserStore()
         authApi.current.mockResolvedValue({ success: true, message: 'ok', data: { id: 1, username: 'admin', role: 'ADMIN' } })

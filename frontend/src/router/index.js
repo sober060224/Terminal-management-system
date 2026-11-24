@@ -125,6 +125,8 @@ const LANDING = {
 // 抽成纯函数，才能被单测覆盖；beforeEach 只负责把 store 接进来。
 export function checkAccess(to, store) {
     if (!store.isLogin) {
+        // checked=false 表示 current 请求因网络/5xx 失败，尚不能判定为未登录。
+        if (store.checked === false) return true
         return { path: '/login', query: { redirect: to.fullPath } }
     }
     // 带 roles 的路由做角色校验，管理员天然拥有全部权限
@@ -142,6 +144,9 @@ router.beforeEach(async (to) => {
     }
     const store = useUserStore()
     await store.load()
+    if (!store.isLogin && !store.checked) {
+        ElMessage.error('暂时无法确认登录状态，请稍后重试')
+    }
     const result = checkAccess(to, store)
     if (result !== true && result.path === LANDING[store.role]) {
         ElMessage.warning('当前角色没有访问该页面的权限')

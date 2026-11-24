@@ -39,5 +39,7 @@ logging:
     com.gdou.ferry: INFO
 
 ferry:
+  # Remember Me 签名密钥必须由部署环境注入，不能把长期密钥提交到仓库
+  remember-me-key: ${FERRY_REMEMBER_ME_KEY:}
   # 订单支付时限（分钟），超时未支付由 OrderExpiryJob 定时任务释放座位
   order-pay-minutes: 15

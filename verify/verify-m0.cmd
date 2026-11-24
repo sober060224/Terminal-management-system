@@ -9,5 +9,6 @@ set "DIR=%FERRY_ARTIFACTS%"
 set "LOG=%DIR%\verify-m0.log"
 if not exist "%DIR%" mkdir "%DIR%"
 python "%~dp0verify_m0.py" > "%LOG%" 2>&1
+set "CODE=%ERRORLEVEL%"
 type "%LOG%"
-exit /b %ERRORLEVEL%
+exit /b %CODE%

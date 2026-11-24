@@ -4,6 +4,7 @@ import com.gdou.ferry.common.ErrorCodes;
 import com.gdou.ferry.common.LoginUser;
 import com.gdou.ferry.repository.UserRepository;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -14,10 +15,12 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.RememberMeServices;
+import org.springframework.security.web.authentication.rememberme.RememberMeAuthenticationFilter;
+import org.springframework.security.web.authentication.rememberme.TokenBasedRememberMeServices;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -34,20 +37,33 @@ import java.io.IOException;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    static final String REMEMBER_ME_COOKIE_NAME = "FERRY_REMEMBER_ME";
+    static final int REMEMBER_ME_SECONDS = 7 * 24 * 60 * 60;
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
     /**
-     * 只负责把账号读出来交给 Spring 的认证流程，状态判定由 LoginUser#isEnabled 反映，
-     * 由 DaoAuthenticationProvider 的 pre-checks 统一处理（口令比对之前）。
+     * JSON 登录成功后由 AuthController 显式调用 loginSuccess；此处只负责安全校验和 7 天有效期。
      */
     @Bean
-    public UserDetailsService userDetailsService(UserRepository userRepository) {
-        return username -> userRepository.findByUsername(username)
-                .map(LoginUser::new)
-                .orElseThrow(() -> new UsernameNotFoundException("用户不存在"));
+    public RememberMeServices rememberMeServices(UserDetailsService userDetailsService,
+                                                 @Value("${ferry.remember-me-key:}") String key) {
+        if (key == null || key.isBlank()) {
+            throw new IllegalStateException("FERRY_REMEMBER_ME_KEY 未配置");
+        }
+        TokenBasedRememberMeServices services = new TokenBasedRememberMeServices(
+                key, userDetailsService, TokenBasedRememberMeServices.RememberMeTokenAlgorithm.SHA256);
+        services.setTokenValiditySeconds(REMEMBER_ME_SECONDS);
+        services.setAlwaysRemember(true);
+        services.setCookieName(REMEMBER_ME_COOKIE_NAME);
+        services.setCookieCustomizer(cookie -> {
+            cookie.setHttpOnly(true);
+            cookie.setAttribute("SameSite", "Lax");
+        });
+        return services;
     }
 
     @Bean
@@ -72,7 +88,9 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http,
-                                           SecurityContextRepository securityContextRepository) throws Exception {
+                                           SecurityContextRepository securityContextRepository,
+                                           UserRepository userRepository,
+                                           RememberMeServices rememberMeServices) throws Exception {
         // 前端是单页应用，CSRF 令牌从可读的 Cookie 中取，由 axios 自动回填到请求头
         CookieCsrfTokenRepository csrfTokenRepository = CookieCsrfTokenRepository.withHttpOnlyFalse();
         CsrfTokenRequestAttributeHandler csrfRequestHandler = new CsrfTokenRequestAttributeHandler();
@@ -97,6 +115,7 @@ public class SecurityConfig {
                 .csrfTokenRequestHandler(csrfRequestHandler))
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
+            .rememberMe(remember -> remember.rememberMeServices(rememberMeServices))
             .logout(logout -> logout
                 .logoutUrl("/api/auth/logout")
                 .logoutSuccessHandler((req, res, auth) -> writeJson(res, 200, true, "登出成功", null, null))
@@ -108,7 +127,9 @@ public class SecurityConfig {
                 .authenticationEntryPoint((req, res, e) ->
                         writeJson(res, 401, false, "请先登录", null, ErrorCodes.NOT_LOGGED_IN))
                 .accessDeniedHandler((req, res, e) ->
-                        writeJson(res, 403, false, "当前角色没有执行该操作的权限", null, ErrorCodes.FORBIDDEN)));
+                        writeJson(res, 403, false, "当前角色没有执行该操作的权限", null, ErrorCodes.FORBIDDEN)))
+            .addFilterAfter(new AuthenticatedUserValidationFilter(userRepository, rememberMeServices),
+                    RememberMeAuthenticationFilter.class);
 
         return http.build();
     }

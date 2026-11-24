@@ -34,6 +34,7 @@ class LoginUserTest {
         assertTrue(new LoginUser(user(Role.ADMIN, UserStatus.ACTIVE)).isEnabled());
         assertFalse(new LoginUser(user(Role.ADMIN, UserStatus.DISABLED)).isEnabled());
         assertFalse(new LoginUser(user(Role.ADMIN, UserStatus.PENDING)).isEnabled());
+        assertFalse(new LoginUser(user(Role.ADMIN, UserStatus.REJECTED)).isEnabled());
     }
 
     @Test

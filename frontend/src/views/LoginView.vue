@@ -9,7 +9,7 @@ const store = useUserStore()
 const route = useRoute()
 const router = useRouter()
 
-const form = reactive({ username: '', password: '' })
+const form = reactive({ username: '', password: '', rememberMe: false })
 const loading = ref(false)
 const errorText = ref('')
 
@@ -21,7 +21,7 @@ async function submit() {
     loading.value = true
     errorText.value = ''
     try {
-        await store.login({ username: form.username, password: form.password })
+        await store.login({ username: form.username, password: form.password, rememberMe: form.rememberMe })
         ElMessage.success('登录成功')
         // 登录前被踢下线时带了 redirect，回原页面；否则按角色落地
         const back = route.query.redirect
@@ -42,7 +42,7 @@ async function submit() {
 
             <el-form label-position="top" @submit.prevent="submit">
                 <el-form-item label="用户名">
-                    <el-input v-model="form.username" placeholder="用户名" autocomplete="username"/>
+                    <el-input v-model="form.username" placeholder="用户名（4-20 字符）" autocomplete="username" minlength="4" maxlength="20"/>
                 </el-form-item>
                 <el-form-item label="密码">
                     <el-input
@@ -53,6 +53,9 @@ async function submit() {
                         autocomplete="current-password"
                         @keyup.enter="submit"
                     />
+                </el-form-item>
+                <el-form-item>
+                    <el-checkbox v-model="form.rememberMe">记住我 7 天</el-checkbox>
                 </el-form-item>
                 <el-alert v-if="errorText" :title="errorText" type="error" :closable="false" show-icon/>
                 <el-button type="primary" class="submit" :loading="loading" @click="submit">

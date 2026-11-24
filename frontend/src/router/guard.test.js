@@ -7,14 +7,19 @@ function to(fullPath, meta = {}) {
     return { fullPath, meta }
 }
 
-function store(role) {
-    return { isLogin: !!role, role }
+function store(role, checked = true) {
+    return { isLogin: !!role, role, checked }
 }
 
 describe('checkAccess', () => {
     it('未登录跳登录页并带 redirect', () => {
         const r = checkAccess(to('/admin'), store(null))
         expect(r).toEqual({ path: '/login', query: { redirect: '/admin' } })
+    })
+
+    it('身份尚未确认时保留当前路由，不误判未登录', () => {
+        const r = checkAccess(to('/admin'), store(null, false))
+        expect(r).toBe(true)
     })
 
     it('管理员可以进 admin', () => {

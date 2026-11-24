@@ -27,7 +27,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(BizException.class)
     public ResponseEntity<Result<Void>> handleBizException(BizException e) {
-        log.warn("业务异常: {}", e.getMessage());
+        if (e.getStatus() != null && e.getStatus().is5xxServerError()) {
+            log.error("业务异常: {}", e.getMessage(), e);
+        } else {
+            log.warn("业务异常: {}", e.getMessage());
+        }
         // 业务异常自己带的错误码优先（USERNAME_EXISTS 这类），没有才按 HTTP 状态码推导
         String code = e.getCode() != null ? e.getCode() : codeFor(e.getStatus());
         return ResponseEntity.status(e.getStatus())

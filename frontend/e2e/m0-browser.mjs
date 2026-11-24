@@ -108,6 +108,18 @@ console.log('\n[未登录访问受保护页面]')
     await context.close()
 }
 
+console.log('\n[current 网络故障不误判未登录]')
+{
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    await page.route('**/api/auth/current', (route) => route.abort('failed'))
+    await page.goto(`${BASE}/#/admin`, { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(1500)
+    check('保留受保护路由', (await page.evaluate(() => window.location.hash)).startsWith('#/admin'), true)
+    check('页面仍能渲染管理后台', (await page.locator('.page-title').first().innerText()).trim(), '管理后台')
+    await context.close()
+}
+
 await browser.close()
 
 console.log('\n=== 结果 ===')

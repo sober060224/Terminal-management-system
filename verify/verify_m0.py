@@ -29,6 +29,7 @@ PASSENGER = "m0p" + STAMP
 DUP = "m0d" + STAMP
 BADPHONE = "m0b" + STAMP
 SHORTPW = "m0s" + STAMP
+BADNAME = "m0x"
 
 failures = []
 
@@ -53,6 +54,11 @@ class Client:
             if c.name == name:
                 return c.value
         return None
+
+    def drop_cookie(self, name):
+        for c in list(self.jar):
+            if c.name == name:
+                self.jar.clear(c.domain, c.path, c.name)
 
     def csrf_cookie(self):
         return self.cookie("XSRF-TOKEN")
@@ -140,6 +146,20 @@ check("重名错误码 USERNAME_EXISTS", body.get("code"), "USERNAME_EXISTS")
 op = Client()
 op.seed_csrf()
 bad = new_passenger()
+bad["username"] = BADNAME
+st, body = op.post("/api/auth/register", bad)
+check("3 字符用户名 400", st, 400)
+check("用户名长度错误码 VALIDATION_ERROR", body.get("code"), "VALIDATION_ERROR")
+
+op = Client()
+op.seed_csrf()
+st, body = op.post("/api/auth/login", {"username": BADNAME, "password": PASSWORD})
+check("3 字符用户名登录 400", st, 400)
+check("登录用户名长度错误码 VALIDATION_ERROR", body.get("code"), "VALIDATION_ERROR")
+
+op = Client()
+op.seed_csrf()
+bad = new_passenger()
 bad["username"] = BADPHONE
 bad["phone"] = "123"
 st, body = op.post("/api/auth/register", bad)
@@ -165,6 +185,7 @@ check("管理员角色 ADMIN", body.get("data", {}).get("role"), "ADMIN")
 st, body = op.get_json("/api/auth/current")
 check("带会话查 current 200", st, 200)
 check("current 返回用户名", body.get("data", {}).get("username"), "admin")
+check("current 返回身份证号", body.get("data", {}).get("idCard"), "440100199001011001")
 
 # 判据不是「不等于 403」：M0 没有 /api/admin/** 的业务接口，管理员拿到的是 404
 # （Spring 静态资源处理器），乘客/售票员拿到的是 403（被安全过滤链拦下）。
@@ -183,6 +204,57 @@ op.seed_csrf()
 st, body = op.post("/api/auth/login", {"username": "admin", "password": "wrongpass"})
 check("错误密码 401", st, 401)
 check("登录失败错误码 AUTH_FAILED", body.get("code"), "AUTH_FAILED")
+
+op = Client()
+op.seed_csrf()
+st, body = op.post("/api/auth/login", {"username": "admin", "password": "admin123"})
+check("失败重登录前置登录 200", st, 200)
+st, body = op.post("/api/auth/login", {"username": "admin", "password": "wrongpass"})
+check("失败重登录 401", st, 401)
+st, body = op.get_json("/api/auth/current")
+check("失败重登录后旧 Session 401", st, 401)
+check("失败重登录后错误码 NOT_LOGGED_IN", body.get("code"), "NOT_LOGGED_IN")
+
+# --- 2.1 Remember Me ---
+print("\n[2.1] Remember Me")
+op = Client()
+op.seed_csrf()
+st, body = op.post("/api/auth/login", {
+    "username": "admin",
+    "password": "admin123",
+    "rememberMe": True,
+})
+check("记住我登录 200", st, 200)
+remember = next((c for c in op.jar if c.name == "FERRY_REMEMBER_ME"), None)
+check("记住我 Cookie 已签发", remember is not None, True)
+check("记住我 Cookie 带过期时间", remember is not None and remember.expires is not None, True)
+if remember is not None and remember.expires is not None:
+    remaining = remember.expires - time.time()
+    check("记住我 Cookie 约为 7 天", 7 * 24 * 3600 - 120 <= remaining <= 7 * 24 * 3600 + 120, True)
+
+op.drop_cookie("JSESSIONID")
+check("测试客户端已删除 JSESSIONID", op.cookie("JSESSIONID") is None, True)
+st, body = op.get_json("/api/auth/current")
+check("Session 删除后可由记住我恢复", st, 200)
+check("恢复后用户名正确", body.get("data", {}).get("username"), "admin")
+
+st, body = op.post("/api/auth/logout")
+check("记住我登录后登出 200", st, 200)
+check("登出后 JSESSIONID 已删除", op.cookie("JSESSIONID") is None, True)
+check("登出后 FERRY_REMEMBER_ME 已删除", op.cookie("FERRY_REMEMBER_ME") is None, True)
+
+op = Client()
+op.seed_csrf()
+st, body = op.post("/api/auth/login", {
+    "username": "admin",
+    "password": "admin123",
+    "rememberMe": False,
+})
+check("未勾选记住我登录 200", st, 200)
+check("未勾选不签发 FERRY_REMEMBER_ME", op.cookie("FERRY_REMEMBER_ME") is None, True)
+op.drop_cookie("JSESSIONID")
+st, body = op.get_json("/api/auth/current")
+check("未勾选时删除 Session 后 current 401", st, 401)
 
 # --- 3. 角色鉴权 ---
 print("\n[3] 角色鉴权")
