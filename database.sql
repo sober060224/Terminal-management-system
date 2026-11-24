@@ -13,7 +13,7 @@ USE ferry_system;
 -- 用户表
 CREATE TABLE user (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
-    username VARCHAR(50) NOT NULL UNIQUE COMMENT '登录账号',
+    username VARCHAR(20) NOT NULL UNIQUE COMMENT '登录账号（4-20字符）',
     password VARCHAR(255) NOT NULL COMMENT 'BCrypt 密文',
     role ENUM('ADMIN', 'SELLER', 'PASSENGER') NOT NULL DEFAULT 'PASSENGER',
     name VARCHAR(50) NOT NULL COMMENT '真实姓名',
