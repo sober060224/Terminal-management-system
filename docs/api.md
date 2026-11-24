@@ -338,7 +338,7 @@ Cookie: JSESSIONID=...
 | `role` | string | 角色：`ADMIN` / `SELLER` / `PASSENGER` |
 | `name` | string | 真实姓名 |
 | `phone` | string | 手机号 |
-| `status` | string | 状态：`ACTIVE` / `DISABLED` / `PENDING` |
+| `status` | string | 状态：`ACTIVE` / `DISABLED` / `PENDING` / `REJECTED` |
 | `createTime` | string | 注册时间，`yyyy-MM-ddTHH:mm:ss`（本地时区 `Asia/Shanghai`，秒级，无小数位） |
 
 **注意**: `password` 和 `idCard` 永远不出现在响应中。
@@ -725,7 +725,7 @@ hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局
 
 ## 8. 跨模块基础契约（模块一预留）
 
-本节冻结模块一为模块二、四、五提供的命名和共享类型。这里列出的是后续模块的实现契约，不代表当前已经创建对应的 Controller；模块一只提供可用的基础能力，不创建空接口或占位页面。
+本节冻结模块一为模块二、四、五提供的命名和共享类型。`/api/schedules` 和 `/api/orders/mine` 已有实现，下文按“已有接口”标注；其余列出的路径是后续模块契约，不创建空接口或占位页面。
 
 ### 8.1 当前身份与只读用户目录
 
@@ -762,7 +762,7 @@ hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局
 | 管理 | `/api/admin/schedules/**` | `ADMIN` | 班次维护 |
 | 只读 | `/api/routes` | 已登录 | 航线列表 |
 | 只读 | `/api/ships` | 已登录 | 船舶列表 |
-| 只读 | `/api/schedules` | 已登录 | 班次查看 |
+| 只读 | `/api/schedules` | 已登录 | 已有接口；只返回 `status='售票中'` 且未发船的班次 |
 
 前端预留入口为 `/admin/routes`、`/admin/ships`、`/admin/schedules`，只在模块二页面和路由真实完成后加入 `navigation.js`。
 
@@ -778,14 +778,14 @@ hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局
 
 ### 8.3 模块四、五：检票与报表
 
-| 模块 | 预留路径 | 权限 | 说明 |
+| 模块 | 路径 | 权限 | 状态与说明 |
 |---|---|---|---|
-| 模块四 | `/api/seller/check-ins` | `SELLER` / `ADMIN` | 检票执行与检票记录 |
-| 模块四 | `/api/orders/mine` | 已登录 | 乘客船票列表优先复用现有订单票视图 |
-| 模块五 | `/api/seller/performance` | `SELLER` / `ADMIN` | 售票员个人业绩，服务端限制本人 |
-| 模块五 | `/api/admin/reports/**` | `ADMIN` | 全站统计报表 |
+| 模块四 | `/api/seller/check-ins` | `SELLER` / `ADMIN` | 预留；检票执行与检票记录 |
+| 模块四 | `/api/orders/mine` | 已登录 | 已有接口；复用订单 / 船票视图 |
+| 模块五 | `/api/seller/performance` | `SELLER` / `ADMIN` | 预留；仅返回登录人的个人业绩，不接收 `sellerId` |
+| 模块五 | `/api/admin/reports/**` | `ADMIN` | 预留；全站统计和售票员排名 |
 
-模块四、五的当前用户身份只能来自登录上下文；检票记录和业绩记录通过 `UserReference` 批量解析人员。模块五业绩以 `orders.seller_id`、`check_in.seller_id` 等业务记录为事实来源，不以当前 `user.role` 反推历史角色。
+模块四、五的当前用户 ID 只能从登录上下文取得。检票记录以 `check_in.seller_id` 为人员事实，销售业绩以 `orders.seller_id` 为人员事实；通过 `UserReference` 解析姓名，但不根据当前 `user.role` 反推历史身份。`/api/seller/performance` 的 `ADMIN` 调用同样只看登录人本人；管理员查看全站售票员排名使用 `/api/admin/reports/**`。
 
 ---
 

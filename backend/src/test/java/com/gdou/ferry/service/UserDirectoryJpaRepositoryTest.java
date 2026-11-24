@@ -26,31 +26,46 @@ class UserDirectoryJpaRepositoryTest {
     private UserRepository userRepository;
 
     @Test
-    void directoryQueriesIncludeNonActiveUsersAndSortById() {
-        User active = save("active-seller", UserStatus.ACTIVE);
-        User disabled = save("disabled-seller", UserStatus.DISABLED);
-        User pending = save("pending-seller", UserStatus.PENDING);
+    void batchLookupReturnsOnlyRequestedUsersSortedById() {
+        User active = save("active-seller", Role.SELLER, UserStatus.ACTIVE);
+        User disabled = save("disabled-seller", Role.SELLER, UserStatus.DISABLED);
+        save("unrequested-pending-seller", Role.SELLER, UserStatus.PENDING);
+        save("unrequested-passenger", Role.PASSENGER, UserStatus.ACTIVE);
 
         UserDirectoryService directory = new UserDirectoryService(userRepository);
-        List<Long> requestedIds = List.of(disabled.getId(), active.getId(), pending.getId());
-        List<Long> expectedIds = List.of(active.getId(), disabled.getId(), pending.getId());
+        List<Long> requestedIds = List.of(disabled.getId(), active.getId());
 
-        assertEquals(expectedIds, directory.findAllByIds(requestedIds).stream()
-                .map(UserReference::id)
-                .toList());
-        assertEquals(expectedIds, directory.findByRole(Role.SELLER).stream()
-                .map(UserReference::id)
-                .toList());
+        assertEquals(List.of(active.getId(), disabled.getId()),
+                directory.findAllByIds(requestedIds).stream()
+                        .map(UserReference::id)
+                        .toList());
     }
 
-    private User save(String username, UserStatus status) {
+    @Test
+    void roleLookupReturnsOnlySellersIncludingNonActive() {
+        User active = save("active-seller", Role.SELLER, UserStatus.ACTIVE);
+        User disabled = save("disabled-seller", Role.SELLER, UserStatus.DISABLED);
+        User pending = save("pending-seller", Role.SELLER, UserStatus.PENDING);
+        User rejected = save("rejected-seller", Role.SELLER, UserStatus.REJECTED);
+        save("passenger", Role.PASSENGER, UserStatus.ACTIVE);
+        save("admin", Role.ADMIN, UserStatus.ACTIVE);
+
+        UserDirectoryService directory = new UserDirectoryService(userRepository);
+
+        assertEquals(List.of(active.getId(), disabled.getId(), pending.getId(), rejected.getId()),
+                directory.findByRole(Role.SELLER).stream()
+                        .map(UserReference::id)
+                        .toList());
+    }
+
+    private User save(String username, Role role, UserStatus status) {
         User user = new User();
         user.setUsername(username);
         user.setPassword("hashed-password");
         user.setName(username);
         user.setPhone("13800138000");
         user.setIdCard("440100199001010015");
-        user.setRole(Role.SELLER);
+        user.setRole(role);
         user.setStatus(status);
         return userRepository.saveAndFlush(user);
     }
