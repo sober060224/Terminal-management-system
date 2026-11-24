@@ -2,6 +2,7 @@ package com.gdou.ferry.dto;
 
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
+import tools.jackson.databind.json.JsonMapper;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -10,6 +11,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AuthFormsValidationTest {
 
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
+
+    @Test
+    void loginRequestDefaultsRememberMeToFalse() throws Exception {
+        AuthForms.LoginRequest form = new JsonMapper().readValue(
+                "{\"username\":\"admin\",\"password\":\"admin123\"}",
+                AuthForms.LoginRequest.class);
+
+        assertFalse(form.rememberMe());
+    }
 
     @Test
     void usernameMustBeFourToTwentyCharacters() {

@@ -43,6 +43,10 @@ public class AuthForms {
             @NotBlank(message = "密码不能为空")
             String password,
 
-            boolean rememberMe
-    ) {}
+            Boolean rememberMe
+    ) {
+        public LoginRequest {
+            rememberMe = Boolean.TRUE.equals(rememberMe);
+        }
+    }
 }
