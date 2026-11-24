@@ -64,14 +64,23 @@ public class OrderQueryService {
     }
 
     /**
-     * 售票员/管理员订单列表：管理员看全部，售票员看自己经手的。
+     * 售票员/管理员订单列表：管理员看全部，售票员默认看自己经手的；
+     * 传 orderId / idCard 时改成跨经手人精确查询——窗口代退要能处理乘客线上自购的票。
      */
     @Transactional(readOnly = true)
     public List<OrderRowView> sellerOrders(LoginUser loginUser, LocalDate dateFrom, LocalDate dateTo,
-                                           Long scheduleId, String passengerName) {
-        List<Orders> orders = loginUser.getRole() == Role.ADMIN
-                ? ordersRepository.findAll()
-                : ordersRepository.findBySellerIdOrderByCreateTimeDesc(loginUser.getId());
+                                           Long scheduleId, String passengerName,
+                                           Long orderId, String idCard) {
+        List<Orders> orders;
+        if (orderId != null) {
+            orders = ordersRepository.findById(orderId).map(List::of).orElse(List.of());
+        } else if (idCard != null && !idCard.isBlank()) {
+            orders = ordersRepository.findByTicketIdCard(idCard.trim());
+        } else if (loginUser.getRole() == Role.ADMIN) {
+            orders = ordersRepository.findAll();
+        } else {
+            orders = ordersRepository.findBySellerIdOrderByCreateTimeDesc(loginUser.getId());
+        }
         return views(orders).stream()
                 .filter(view -> matches(view, dateFrom, dateTo, scheduleId, passengerName))
                 .toList();

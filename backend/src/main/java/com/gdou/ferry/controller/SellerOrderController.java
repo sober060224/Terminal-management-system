@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.util.List;
 /**
- * 售票员侧订单：订单列表、代售下单、代付、代取消、代退、代改签。
+ * 售票员侧订单：订单列表（含按订单号/身份证跨经手人查询）、代售下单、代付、代取消、代退、代改签。
  * 代售订单 passenger_id 与 seller_id 都挂售票员本人，真实乘船人信息写在票上。
  */
 @RestController
@@ -43,8 +43,11 @@ public class SellerOrderController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
             @RequestParam(required = false) Long scheduleId,
             @RequestParam(required = false) String passengerName,
+            @RequestParam(required = false) Long orderId,
+            @RequestParam(required = false) String idCard,
             @AuthenticationPrincipal LoginUser loginUser) {
-        return Result.ok(orderQueryService.sellerOrders(loginUser, dateFrom, dateTo, scheduleId, passengerName));
+        return Result.ok(orderQueryService.sellerOrders(loginUser, dateFrom, dateTo, scheduleId, passengerName,
+                orderId, idCard));
     }
 
     /** 代售：passengerId 与 sellerId 都取登录售票员。 */

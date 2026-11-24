@@ -40,4 +40,12 @@ public interface OrdersRepository extends JpaRepository<Orders, Long> {
     @Query("select o.id from Orders o where o.status = :status and o.expireAt < :expireAt")
     List<Long> findIdsByStatusAndExpireAtBefore(@Param("status") String status,
                                                 @Param("expireAt") LocalDateTime expireAt);
+
+    /**
+     * 窗口代退/代改签要能定位乘客自己在线上买的票：按乘船人身份证跨经手人查，
+     * 一张订单可能有多位乘客，所以按票的 id_card 匹配后 distinct。
+     */
+    @Query("select distinct o from Orders o, Ticket t "
+            + "where t.orderId = o.id and t.idCard = :idCard order by o.createTime desc")
+    List<Orders> findByTicketIdCard(@Param("idCard") String idCard);
 }

@@ -90,7 +90,7 @@ class OrderQueryServiceTest {
     void 售票员只看自己经手的订单() {
         when(ordersRepository.findBySellerIdOrderByCreateTimeDesc(5L)).thenReturn(List.of());
 
-        assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, null, null).isEmpty());
+        assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, null, null, null, null).isEmpty());
 
         verify(ordersRepository).findBySellerIdOrderByCreateTimeDesc(5L);
         verify(ordersRepository, never()).findAll();
@@ -170,11 +170,11 @@ class OrderQueryServiceTest {
         when(seatRepository.findAllById(List.of(11L, 12L))).thenReturn(List.of());
         when(scheduleRepository.findAllById(List.of(2L, 3L))).thenReturn(List.of(origin));
 
-        var views = service.sellerOrders(user(5L, Role.SELLER), null, null, 3L, null);
+        var views = service.sellerOrders(user(5L, Role.SELLER), null, null, 3L, null, null, null);
 
         // 订单原始班次是 2，但有一张票改到了 3：按 3 筛必须命中
         assertEquals(1, views.size());
-        assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, 4L, null).isEmpty());
+        assertTrue(service.sellerOrders(user(5L, Role.SELLER), null, null, 4L, null, null, null).isEmpty());
     }
 
     @Test
@@ -195,6 +195,35 @@ class OrderQueryServiceTest {
 
         assertEquals(origin.getDepartTime(), views.get(0).tickets().get(0).departTime());
         assertEquals(target.getDepartTime(), views.get(0).tickets().get(1).departTime());
+    }
+
+    @Test
+    void 售票员按订单号能查到别人经手的订单() {
+        Orders order = order(1L, 2L, 99L);
+        when(ordersRepository.findById(1L)).thenReturn(Optional.of(order));
+        when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(ticket(10L, 1L, 2L)));
+        when(scheduleRepository.findAllById(List.of(2L))).thenReturn(List.of());
+        when(seatRepository.findAllById(List.of(11L))).thenReturn(List.of());
+
+        var views = service.sellerOrders(user(5L, Role.SELLER), null, null, null, null, 1L, null);
+
+        // 窗口代退要能打开乘客线上自购的单：不能只在自己经手的范围里找
+        assertEquals(1, views.size());
+        verify(ordersRepository, never()).findBySellerIdOrderByCreateTimeDesc(5L);
+    }
+
+    @Test
+    void 售票员按身份证能查到别人经手的订单() {
+        Orders order = order(1L, 2L, 99L);
+        when(ordersRepository.findByTicketIdCard("110101199003071234")).thenReturn(List.of(order));
+        when(ticketRepository.findByOrderIdInOrderByIdAsc(List.of(1L))).thenReturn(List.of(ticket(10L, 1L, 2L)));
+        when(scheduleRepository.findAllById(List.of(2L))).thenReturn(List.of());
+        when(seatRepository.findAllById(List.of(11L))).thenReturn(List.of());
+
+        var views = service.sellerOrders(user(5L, Role.SELLER), null, null, null, null, null, "110101199003071234");
+
+        assertEquals(1, views.size());
+        verify(ordersRepository, never()).findBySellerIdOrderByCreateTimeDesc(5L);
     }
 
     private Schedule schedule(Long id, Long routeId, LocalDateTime departTime) {

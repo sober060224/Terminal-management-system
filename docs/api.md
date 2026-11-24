@@ -686,7 +686,7 @@ POST /api/seller/orders/tickets/{ticketId}/refund   代退，口径同 7.4.1
 POST /api/seller/orders/tickets/{ticketId}/rebook   代改签，口径同 7.4.2
 ```
 
-`GET /api/seller/orders` 支持四个可选 query 参数，同时传时按 AND 组合：
+`GET /api/seller/orders` 支持六个可选 query 参数，同时传时按 AND 组合：
 
 | 参数 | 格式 | 说明 |
 |---|---|---|
@@ -694,8 +694,10 @@ POST /api/seller/orders/tickets/{ticketId}/rebook   代改签，口径同 7.4.2
 | `dateTo` | `YYYY-MM-DD` | 下单日期上界（含） |
 | `scheduleId` | number | 只看某个班次（命中订单原始班次或任一张票的班次，改签过的单在目标班次下也查得到） |
 | `passengerName` | string | 按乘船人姓名模糊匹配 |
+| `orderId` | number | 精确订单号，**跨经手人查询**（不看 `seller_id`） |
+| `idCard` | string | 乘船人 18 位身份证号，**跨经手人查询**（按票的 `id_card` 匹配，一张单多位乘客也能命中） |
 
-上述四个参数目前只有管理端「全部订单」页接了筛选表单，售票端「代售订单」页暂未提供筛选入口（接口已支持）。
+`dateFrom`/`dateTo`/`scheduleId`/`passengerName` 四个筛选目前只有管理端「全部订单」页接了表单；`orderId`/`idCard` 供售票端「代售订单」页的查询框使用——窗口代退/代改签要能定位乘客自己在线上买的票。只传 `orderId` 或 `idCard` 时不受 `seller_id` 限制；两者都不传才是「售票员只看自己经手的」。
 
 ### 7.6 前端页面与路由
 

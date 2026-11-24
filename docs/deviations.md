@@ -70,6 +70,7 @@
 - 需求（模块三）：只写了"乘客可退票/改签"，没限定售票员能操作谁的订单。
 - 实现：`OrderService.checkOrderPermission` 只对 `PASSENGER` 校验 `order.passengerId == 当前用户`；`SELLER` 与 `ADMIN` 直接放行，代退/代改签任意乘客的订单。
 - 理由：售票窗口要处理乘客拿纸质票来退改，管理员要处理投诉与对账，渠道限制反而不符合业务；审计靠 `seller_id` 与 `ticket.changed_at`/`refund_time` 留痕。
+- 界面：售票端「代售订单」默认只列自己经手的订单，另有订单号/身份证查询框，填了就跨经手人查（`GET /api/seller/orders?orderId=`/`?idCard=`），否则这条权限在界面上够不着。
 
 ## 11. 实体的创建时间走静态 Clock 入口（不是构造器注入）
 
