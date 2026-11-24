@@ -1,6 +1,6 @@
 # 0003 座位占用靠 `seat.order_id` 和视图 `v_seat_state`，不做两个时钟
 
-需求里有两条锁定时限：选座后锁 3 分钟、下单后锁 15 分钟。若两者都写 `seat.lock_until`，下单后第 3 分钟座位就会被"锁过期"释放掉，而订单还活着——超卖。所以拆成两件事：`seat.lock_until` 只表示**纯选座锁**（还没下单），`seat.order_id` 表示**已被订单占用**；订单到期看 `orders.expire_at`，座位是否真的被占只看订单状态。三种状态由视图 `v_seat_state` 统一算出，前后端都查它，不各写一遍 `CASE WHEN`。
+需求里原来有两条锁定时限：选座后锁 3 分钟、下单后锁 15 分钟。M3 实现把两步合成一步：**下单时同时锁座**，`seat.lock_until` 直接写订单的 `expire_at`（`ferry.order-pay-minutes`，默认 15 分钟），只有一个时钟，不存在"3 分钟到了把还活着的订单座位释放掉"的超卖。`seat.order_id` 表示座位已被订单占用，订单是否到期只看 `orders.expire_at`。座位三种状态（可选 / 锁定 / 已售）由服务层按票级状态 + `lock_until` 惰性算出，SQL 侧另有视图 `v_seat_state` 供报表使用。
 
 ## Status
 
@@ -8,4 +8,4 @@
 
 ## Consequences
 
-`seat.seat_status` 列保留（需求附录有），但它降级为冗余 + 供 CHECK 约束用，判断一律以视图为准，避免两处逻辑漂移。超时不再需要"扫座位"：查询时按 `now()` 判断即可，`@Scheduled` 只做状态清理，晚跑不产生错误结果。
+`seat.seat_status` 列保留（需求附录有），但降级为冗余 + 供 CHECK 约束用；后端判断以 `ticket` 状态 + `seat.lock_until` 为准。超时不需要"扫座位"：查询时按 `now()` 判断即可，`@Scheduled` 只做状态清理（超时订单置已取消、座位释放），晚跑不产生错误结果。

@@ -1,6 +1,6 @@
 -- 轮渡码头客运管理系统 数据库脚本
 -- 设计见 PLAN.md §1
--- 执行: mysql -u root -p < database.sql
+-- 执行: mysql -u root -p --default-character-set=utf8mb4 < database.sql
 
 DROP DATABASE IF EXISTS ferry_system;
 CREATE DATABASE ferry_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -55,7 +55,7 @@ CREATE TABLE schedule (
     arrive_time DATETIME NOT NULL COMMENT '到达时间（可早于发船时间表示次日）',
     price DECIMAL(10,2) NOT NULL COMMENT '票价',
     total_seats INT NOT NULL COMMENT '冗余 ship.total_seats 快速查询',
-    sold_seats INT NOT NULL DEFAULT 0 COMMENT '已售座位数（维护用，真相在视图）',
+    sold_seats INT NOT NULL DEFAULT 0 COMMENT '已售座位数（冗余列，后端不维护，真相在座位表）',
     status ENUM('待发布', '售票中', '已发船', '已完成', '已取消') NOT NULL DEFAULT '待发布',
     FOREIGN KEY (route_id) REFERENCES route(id),
     FOREIGN KEY (ship_id) REFERENCES ship(id),
@@ -72,7 +72,7 @@ CREATE TABLE seat (
     schedule_id BIGINT NOT NULL,
     seat_no VARCHAR(10) NOT NULL COMMENT '座位号 A1, A2, B1...',
     seat_status ENUM('可选', '已售', '锁定') NOT NULL DEFAULT '可选',
-    lock_until DATETIME NULL COMMENT '锁定截止时间（选座3分钟）',
+    lock_until DATETIME NULL COMMENT '锁定截止时间（跟随订单支付截止，默认 15 分钟）',
     order_id BIGINT NULL COMMENT '下单后写入（15分钟锁）',
     FOREIGN KEY (schedule_id) REFERENCES schedule(id),
     UNIQUE KEY uk_seat (schedule_id, seat_no) COMMENT '同班次同座位号唯一',
@@ -108,9 +108,10 @@ CREATE TABLE ticket (
     seat_id BIGINT NOT NULL,
     passenger_name VARCHAR(50) NOT NULL COMMENT '乘客姓名',
     id_card VARCHAR(18) NOT NULL COMMENT '乘客身份证',
+    phone VARCHAR(20) NOT NULL COMMENT '乘客手机号',
     price DECIMAL(10,2) NOT NULL COMMENT '该票票价',
     status ENUM('待支付', '已支付', '已检票', '已完成', '已取消', '已退票') NOT NULL DEFAULT '待支付',
-    refund_amount DECIMAL(10,2) NULL COMMENT '退票金额',
+    refund_amount DECIMAL(10,2) NULL COMMENT '实退现金（改签补差价记 0，退差额记差额）',
     refund_reason VARCHAR(200) NULL COMMENT '退票原因',
     refund_time DATETIME NULL,
     changed_from_ticket_id BIGINT NULL COMMENT '改签源票ID（ADR-0004）',
@@ -153,7 +154,7 @@ SELECT
     CASE
         -- 票级状态才是真相：已支付/已检票/已完成 的座位都已经卖出去，不能再卖
         WHEN o.status IN ('已支付', '已检票', '已完成') THEN '已售'
-        -- 选座锁（3 分钟）或下单锁（15 分钟）未过期
+        -- 下单锁（15 分钟）未过期：锁定状态跟随订单支付截止时间
         WHEN s.lock_until IS NOT NULL AND s.lock_until > NOW() THEN '锁定'
         WHEN o.id IS NOT NULL AND o.status = '待支付' AND o.expire_at > NOW() THEN '锁定'
         ELSE '可选'
@@ -163,20 +164,27 @@ FROM seat s
 LEFT JOIN orders o ON s.order_id = o.id;
 
 -- 视图2: 班次余票
+-- 占用 = 已售 + 未过期的锁定，与后端 ScheduleQueryService 同口径；
+-- 只数已支付的票会漏掉「已锁定但还没付」的座位，界面显示有票却买不到。
 CREATE OR REPLACE VIEW v_schedule_remaining AS
 SELECT
     sch.id AS schedule_id,
     sch.total_seats,
-    COALESCE(COUNT(t.id), 0) AS sold_count,
-    sch.total_seats - COALESCE(COUNT(t.id), 0) AS remaining_seats
+    COALESCE(SUM(CASE WHEN st.seat_status = '已售'
+                           OR (st.seat_status = '锁定'
+                               AND (st.lock_until IS NULL OR st.lock_until > NOW()))
+                      THEN 1 ELSE 0 END), 0) AS sold_count,
+    sch.total_seats - COALESCE(SUM(CASE WHEN st.seat_status = '已售'
+                                            OR (st.seat_status = '锁定'
+                                                AND (st.lock_until IS NULL OR st.lock_until > NOW()))
+                                       THEN 1 ELSE 0 END), 0) AS remaining_seats
 FROM schedule sch
-LEFT JOIN ticket t ON sch.id = t.schedule_id
-    AND t.status IN ('已支付', '已检票', '已完成')
+LEFT JOIN seat st ON sch.id = st.schedule_id
 GROUP BY sch.id, sch.total_seats;
 
 -- 视图3: 售票员业绩
--- 收入按「票」计价，不能按订单总额：一张订单 N 张票时，用 orders.total_amount 求和
--- 会把同一笔钱算 N 次。订单数与票数用子查询分开统计，避免 JOIN 扇出。
+-- 收入取 SUM(orders.total_amount)：该字段是订单当前实收金额（退票递减、改签改为新票合计），
+-- 直接对订单求和即可，不绕票表。订单数与票数用子查询分开统计，避免 JOIN 扇出。
 CREATE OR REPLACE VIEW v_seller_performance AS
 SELECT
     u.id AS seller_id,
@@ -185,11 +193,12 @@ SELECT
     (SELECT COUNT(*)
        FROM ticket t JOIN orders o2 ON o2.id = t.order_id
       WHERE o2.seller_id = u.id
-        AND t.status IN ('已支付', '已检票', '已完成')) AS total_tickets,
-    (SELECT COALESCE(SUM(t.price), 0)
-       FROM ticket t JOIN orders o2 ON o2.id = t.order_id
-      WHERE o2.seller_id = u.id
-        AND t.status IN ('已支付', '已检票', '已完成')) AS total_revenue
+        AND t.status IN ('已支付', '已检票', '已完成', '已退票')) AS total_tickets,
+    (SELECT COALESCE(SUM(o3.total_amount), 0)
+       FROM orders o3
+      WHERE o3.seller_id = u.id
+        AND o3.pay_time IS NOT NULL
+        AND o3.status <> '已取消') AS total_revenue
 FROM user u
 WHERE u.role = 'SELLER';
 
@@ -294,7 +303,7 @@ DELIMITER ;
 -- 5. 演示数据
 -- ====================
 
--- 用户（密码已BCrypt加密：admin/admin123, seller1/seller123, 乘客/123456）
+-- 用户（密码已BCrypt加密：admin123, seller1/seller123, 乘客/123456）
 INSERT INTO user (username, password, role, name, phone, id_card, status) VALUES
 ('admin', '$2a$10$Fr.OoKG44B8HiPyHHT9z1O1XnQYM6N7aVZORh20/epKiA8IFUw8Dq', 'ADMIN', '系统管理员', '13800000001', '440100199001011001', 'ACTIVE'),
 ('seller1', '$2a$10$ccLqXqcjpnrwyMSSRrkWfudu5bJoEd3DfD6lnMaBzLDXZpfYWQDx2', 'SELLER', '张售票', '13800000002', '440100199002021002', 'ACTIVE'),
@@ -315,12 +324,13 @@ INSERT INTO ship (ship_name, total_seats, ship_type, status) VALUES
 ('粤澳01', 80, '豪华船', '正常');
 
 -- 班次（插入后触发器自动生成座位）
+-- 时刻用相对 NOW() 的日期，否则演示数据过一天就全部过期、列表为空
 INSERT INTO schedule (route_id, ship_id, depart_time, arrive_time, price, total_seats, status) VALUES
-(1, 1, '2026-11-21 08:00:00', '2026-11-21 10:00:00', 150.00, 120, '售票中'),
-(1, 1, '2026-11-21 14:00:00', '2026-11-21 16:00:00', 150.00, 120, '售票中'),
-(2, 3, '2026-11-21 09:00:00', '2026-11-21 10:30:00', 200.00, 80, '售票中'),
-(2, 3, '2026-11-21 15:00:00', '2026-11-21 16:30:00', 200.00, 80, '售票中'),
-(3, 2, '2026-11-22 07:00:00', '2026-11-22 09:30:00', 120.00, 100, '售票中');
+(1, 1, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '08:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '10:00:00'), 150.00, 120, '售票中'),
+(1, 1, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '14:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '16:00:00'), 150.00, 120, '售票中'),
+(2, 3, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '09:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '10:30:00'), 200.00, 80, '售票中'),
+(2, 3, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '15:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '16:30:00'), 200.00, 80, '售票中'),
+(3, 2, TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '07:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '09:30:00'), 120.00, 100, '售票中');
 
 -- ====================
 -- 6. 验证

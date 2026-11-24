@@ -5,14 +5,14 @@
  * 用法：node frontend/e2e/m0-browser.mjs [baseUrl]
  */
 import { chromium } from 'playwright'
-import fs from 'node:fs'
+import { chromePath } from './chrome.mjs'
 
 const BASE = process.argv[2] || 'http://localhost:8089'
 
 const cases = [
     { username: 'admin', password: 'admin123', expect: '#/admin', title: '管理后台', label: '管理员落 /admin' },
     { username: 'seller1', password: 'seller123', expect: '#/seller', title: '售票工作台', label: '售票员落 /seller' },
-    { username: 'passenger1', password: '123456', expect: '#/', title: '乘客服务', label: '乘客落 /' }
+    { username: 'passenger1', password: '123456', expect: '#/', title: '查询班次', label: '乘客落 /' }
 ]
 
 const failures = []
@@ -23,9 +23,8 @@ function check(label, actual, expected) {
     if (!ok) failures.push(label)
 }
 
-// 用本机已装的 Chrome，不用额外下 Chromium。
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const browser = await chromium.launch({ executablePath: fs.existsSync(CHROME) ? CHROME : undefined })
+// 用本机已装的 Chrome，找不到就用 Playwright 自带的 Chromium。
+const browser = await chromium.launch({ executablePath: chromePath() })
 console.log(`=== M0 真实浏览器验收 base=${BASE} ===`)
 
 /** 收集页面自身的报错：JS 异常 + 4xx/5xx 资源（favicon 不算）。 */

@@ -1,6 +1,7 @@
 """对照 docs/api.md 里的响应示例与实际响应：字段集合必须一致。"""
 import http.cookiejar
 import json
+import os
 import re
 import sys
 import time
@@ -8,7 +9,7 @@ import urllib.error
 import urllib.request
 
 BASE = "http://localhost:8089"
-DOC = "D:/AAA_Software/Code/Code/University/three/Database_Practice/docs/api.md"
+DOC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "docs", "api.md")
 
 
 def new_client():

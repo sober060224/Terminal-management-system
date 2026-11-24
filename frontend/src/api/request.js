@@ -17,12 +17,14 @@ let redirectingToLogin = false
 request.interceptors.response.use(
     response => {
         const body = response.data
-        // 后端统一响应体 { success, message, data }，这里直接把 data 拆出来
+        // 后端统一响应体 { success, message, data }：这里只判断成功与否，
+        // 整个响应体原样交给调用方。页面都是按 res.data 取业务数据的，
+        // 在这里提前拆掉 data 会让所有列表读成 undefined、显示「暂无数据」。
         if (body && typeof body === 'object' && 'success' in body) {
             if (!body.success) {
                 return Promise.reject(withStatus(new Error(body.message || '操作失败'), response.status))
             }
-            return body.data
+            return body
         }
         return body
     },
