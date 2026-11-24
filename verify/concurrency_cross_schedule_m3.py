@@ -37,7 +37,8 @@ def run_round(index):
     """一轮：下单两票 → 支付 → 把第二张改签到另一班次 → 并发退剩余两张 → 校验。"""
     buyer = login()
     schedule_a, seats_a = future_schedule_with_seats(buyer, 2)
-    schedule_b, seats_b = future_schedule_with_seats(buyer, 1, exclude_id=schedule_a["id"])
+    schedule_b, seats_b = future_schedule_with_seats(
+        buyer, 1, exclude_id=schedule_a["id"], route_id=schedule_a.get("routeId"))
 
     payload = {
         "scheduleId": schedule_a["id"],

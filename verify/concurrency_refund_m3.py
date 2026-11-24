@@ -97,7 +97,7 @@ def login():
     return client
 
 
-def future_schedule_with_seats(client, need, exclude_id=None, price=None, horizon_hours=2):
+def future_schedule_with_seats(client, need, exclude_id=None, price=None, horizon_hours=2, route_id=None):
     """挑一个 2 小时以后发船、且至少有 need 个可选座位的班次（退了才是全额/扣 20% 可预期）。"""
     status, body = client.get("/api/schedules")
     assert status == 200 and body.get("data"), "没有售票中的班次，先跑 verify/m3-seed.sql"
@@ -106,6 +106,8 @@ def future_schedule_with_seats(client, need, exclude_id=None, price=None, horizo
         if exclude_id is not None and schedule["id"] == exclude_id:
             continue
         if price is not None and abs(float(schedule["price"]) - price) > 0.001:
+            continue
+        if route_id is not None and schedule["routeId"] != route_id:
             continue
         if not schedule["departTime"]:
             continue
@@ -221,7 +223,8 @@ def run_triple(index):
 
     # 改签目标必须同航线、同票价（差价 0，才能用「总额 = 初始 − Σ实退」这一条等式）
     target, target_seats = future_schedule_with_seats(
-        buyer, 1, exclude_id=schedule["id"], price=price, horizon_hours=1)
+        buyer, 1, exclude_id=schedule["id"], price=price, horizon_hours=1,
+        route_id=schedule.get("routeId"))
 
     clients = [login() for _ in range(3)]
     barrier = threading.Barrier(3)
