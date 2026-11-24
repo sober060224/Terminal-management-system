@@ -18,7 +18,7 @@ Spring Data JPA / Hibernate 7.4 / Spring Security 7.2（session + CSRF）/ Jacks
 Boot 4 与 3.x 的四个坑，写码前先知道：
 - **Jackson 3**：`ObjectMapper` 在 `tools.jackson.databind`（旧 `com.fasterxml.jackson.databind` 不再有）；
   注解仍是旧包 `com.fasterxml.jackson.annotation.*`（jackson-annotations 2.21），`@JsonIgnore` / `@JsonFormat` 照旧。
-  我们不直接 new ObjectMapper，影响为零。
+  项目不直接 new ObjectMapper，影响为零。
 - **Spring Security 7**：`../Software_Construction/config/SecurityConfig.java` 是 Security 6 写的，**不能直接拷**。
   照它的思路重写（约 1 小时）：`authorizeHttpRequests` + lambda DSL 不变，`and()` 彻底删除，其余按编译错误改。
 - **Hibernate 7**：`@MappedSuperclass` / `@Column` / `@PrePersist` 不变；方言自动探测，不写 `spring.jpa.database-platform`。

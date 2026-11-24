@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore, ROLE_NAMES } from '../store/user'
+import { navigationFor } from '../navigation'
 
 // 三端共用这套外壳，差别只在菜单和配色：role 由各自的 layout 传进来。
 const props = defineProps({
@@ -12,28 +13,7 @@ const store = useUserStore()
 const route = useRoute()
 const router = useRouter()
 
-const menus = computed(() => {
-    if (props.role === 'ADMIN') {
-        return [
-            { path: '/admin', label: '管理后台', icon: 'Setting' },
-            { path: '/admin/orders', label: '全部订单', icon: 'List' },
-            { path: '/seller', label: '售票工作台', icon: 'Tickets' },
-            { path: '/seller/orders', label: '代售订单', icon: 'Document' },
-            { path: '/', label: '查询班次', icon: 'Van' }
-        ]
-    }
-    if (props.role === 'SELLER') {
-        return [
-            { path: '/seller', label: '售票工作台', icon: 'Tickets' },
-            { path: '/seller/sell', label: '代售开票', icon: 'CirclePlus' },
-            { path: '/seller/orders', label: '代售订单', icon: 'Document' }
-        ]
-    }
-    return [
-        { path: '/', label: '查询班次', icon: 'Van' },
-        { path: '/my-orders', label: '我的船票', icon: 'Document' }
-    ]
-})
+const menus = computed(() => navigationFor(props.role))
 
 async function handleLogout() {
     await store.logout()
@@ -62,7 +42,7 @@ const displayName = computed(() =>
             >
                 <el-menu-item v-for="m in menus" :key="m.path" :index="m.path">
                     <el-icon><component :is="m.icon"/></el-icon>
-                    <span>{{ m.label }}</span>
+                    <span>{{ m.title }}</span>
                 </el-menu-item>
             </el-menu>
         </el-aside>
