@@ -193,12 +193,12 @@ public class OrderService {
     }
 
     /**
-     * 取消待支付订单（不校验操作人），人工取消与超时清理共用。
+     * 取消待支付订单（不校验操作人），人工取消、超时清理、取消班次共用。
      *
      * @return 订单仍是待支付并已取消返回 true；已被支付/取消/清理抢先改到行返回 false。
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    boolean cancelAsSystem(Long orderId) {
+    public boolean cancelAsSystem(Long orderId) {
         if (ordersRepository.markCancelled(orderId) == 0) {
             return false;
         }
