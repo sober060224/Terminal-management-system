@@ -29,6 +29,10 @@ public class Route {
     @Column(name = "duration_min", nullable = false)
     private Integer durationMin;
 
+    /** 需求 2.2 功能1 的「航线描述」，可空（数据库列为 VARCHAR(200) NULL）。 */
+    @Column(length = 200)
+    private String description;
+
     @Column(nullable = false, length = 10)
     private String status = "正常";
 }

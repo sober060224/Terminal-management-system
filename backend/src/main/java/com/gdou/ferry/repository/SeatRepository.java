@@ -52,4 +52,11 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
             + "and (s.seatStatus = '已售' or (s.seatStatus = '锁定' "
             + "and (s.lockUntil is null or s.lockUntil > :now)))")
     long countUnavailable(@Param("scheduleId") Long scheduleId, @Param("now") LocalDateTime now);
+
+    /**
+     * 换船时删掉旧座位重建。批量删除比逐条 save/delete 少 N 次往返。
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from Seat s where s.scheduleId = :scheduleId")
+    int deleteByScheduleId(@Param("scheduleId") Long scheduleId);
 }

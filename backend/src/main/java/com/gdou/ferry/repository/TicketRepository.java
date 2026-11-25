@@ -40,4 +40,15 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
             + "where t.id = :id and t.status = '已支付'")
     int markRefunded(@Param("id") Long id, @Param("refundAmount") BigDecimal refundAmount,
                      @Param("refundReason") String refundReason, @Param("refundTime") LocalDateTime refundTime);
+
+    /** 取消班次用：该班次某状态的票（按 id 升序，锁顺序稳定）。状态传「已支付」或「待支付」。 */
+    List<Ticket> findByScheduleIdAndStatusOrderByIdAsc(Long scheduleId, String status);
+
+    /** 班次是否有任何售票记录（含已退票/已取消）：换船守卫。 */
+    boolean existsByScheduleId(Long scheduleId);
+
+    /** 班次是否有有效票（已支付/已检票/已完成）：改发船时间与船舶的守卫。 */
+    @Query("select count(t) > 0 from Ticket t where t.scheduleId = :scheduleId "
+            + "and t.status in ('已支付', '已检票', '已完成')")
+    boolean existsActiveTicketBySchedule(@Param("scheduleId") Long scheduleId);
 }
