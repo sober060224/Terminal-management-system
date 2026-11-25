@@ -32,6 +32,7 @@ CREATE TABLE route (
     start_port VARCHAR(50) NOT NULL COMMENT '出发港',
     end_port VARCHAR(50) NOT NULL COMMENT '到达港',
     duration_min INT NOT NULL COMMENT '航程时长（分钟）',
+    description VARCHAR(200) NULL COMMENT '航线描述（需求2.2功能1）',
     status ENUM('正常', '停运') NOT NULL DEFAULT '正常',
     CHECK (duration_min > 0)
 ) ENGINE=InnoDB COMMENT='航线表';
@@ -42,6 +43,7 @@ CREATE TABLE ship (
     ship_name VARCHAR(50) NOT NULL UNIQUE,
     total_seats INT NOT NULL COMMENT '总座位数',
     ship_type ENUM('普通船', '高速船', '豪华船') NOT NULL,
+    description VARCHAR(200) NULL COMMENT '船舶描述（需求2.2功能2）',
     status ENUM('正常', '维修', '停用') NOT NULL DEFAULT '正常',
     CHECK (total_seats > 0 AND total_seats <= 500)
 ) ENGINE=InnoDB COMMENT='船舶表';
@@ -312,16 +314,16 @@ INSERT INTO user (username, password, role, name, phone, id_card, status) VALUES
 ('passenger2', '$2a$10$NF24UCxyi1QMVBGU/JdAnuWLRh7UCCcmBww4YhwiEV1G.9BNgiwjW', 'PASSENGER', '赵乘客', '13800000005', '440100199005051005', 'ACTIVE');
 
 -- 航线
-INSERT INTO route (route_name, start_port, end_port, duration_min, status) VALUES
-('广州-香港', '广州港', '香港港', 120, '正常'),
-('广州-澳门', '广州港', '澳门港', 90, '正常'),
-('深圳-珠海', '深圳港', '珠海港', 150, '正常');
+INSERT INTO route (route_name, start_port, end_port, duration_min, description, status) VALUES
+('广州-香港', '广州港', '香港港', 120, '经珠江口南下，全程约 2 小时', '正常'),
+('广州-澳门', '广州港', '澳门港', 90, '西江口航线，班次较密', '正常'),
+('深圳-珠海', '深圳港', '珠海港', 150, '跨珠江口，含一段外海航程', '正常');
 
 -- 船舶
-INSERT INTO ship (ship_name, total_seats, ship_type, status) VALUES
-('粤港01', 120, '高速船', '正常'),
-('粤港02', 100, '普通船', '正常'),
-('粤澳01', 80, '豪华船', '正常');
+INSERT INTO ship (ship_name, total_seats, ship_type, description, status) VALUES
+('粤港01', 120, '高速船', '双体高速客轮，航速 32 节', '正常'),
+('粤港02', 100, '普通船', '常规客轮，以经济舱为主', '正常'),
+('粤澳01', 80, '豪华船', '带观景甲板与商务舱', '正常');
 
 -- 班次（插入后触发器自动生成座位）
 -- 时刻用相对 NOW() 的日期，否则演示数据过一天就全部过期、列表为空
@@ -355,6 +357,14 @@ WHERE trigger_schema = 'ferry_system';
 SELECT '存储过程检查' AS 检查项, COUNT(*) AS 实际值, 1 AS 期望值
 FROM information_schema.routines
 WHERE routine_schema = 'ferry_system' AND routine_type = 'PROCEDURE';
+
+-- 模块二新增的描述列：route.description + ship.description = 2
+SELECT '描述列检查' AS 检查项,
+       (SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = 'ferry_system' AND table_name = 'route' AND column_name = 'description')
+     + (SELECT COUNT(*) FROM information_schema.columns
+         WHERE table_schema = 'ferry_system' AND table_name = 'ship' AND column_name = 'description') AS 实际值,
+       2 AS 期望值;
 
 -- 座位是否按班次座位数自动生成：实际座位行数 vs 期望座位数（应为 500 / 500）
 SELECT '座位自动生成检查' AS 检查项,

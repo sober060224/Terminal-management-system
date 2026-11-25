@@ -1,6 +1,6 @@
 # 轮渡码头客运管理系统 API 文档
 
-**版本**: M3 (2026-11-21)  
+**版本**: M3 + 模块二（2026-11-25）  
 **基础路径**: `/api`  
 **认证方式**: Session Cookie (Spring Security)
 
@@ -80,7 +80,7 @@ M0 只有下面 5 个接口。业务接口（航线/班次/售票/检票/统计�
 | 路径前缀 | 允许的角色 | M0 现状 |
 |----------|------------|---------|
 | `/api/auth/**` | 公开（登录/注册/取令牌）或已登录（current/logout） | 已实现 |
-| `/api/admin/**` | 仅 `ADMIN` | 尚未实现任何业务接口，管理员访问会得到 **404**，其他角色得到 **403** |
+| `/api/admin/**` | 仅 `ADMIN` | 模块二起航线/船舶/班次接口已实现（见第 8 节）；其余管理接口仍是 404 |
 | `/api/seller/**` | `SELLER` 与 `ADMIN` | 同上 |
 | 其他 `/api/**` | 任何已登录用户 | 同上 |
 
@@ -722,6 +722,355 @@ hash 路由。同一份「订单 + 票」列表组件按角色挂在不同布局
 | `NOT_FOUND` | 404 | 班次不存在 / 座位不存在：A1 / 船票不存在 / 订单不存在 / 原班次不存在 / 目标座位不存在 |
 | `VALIDATION_ERROR` | 400 | 参数校验失败（`@Valid`，如身份证号必须为 18 位、手机号不合法、单订单超过 5 张票）/ 座位号重复：A1 / 同一订单内乘船人身份证号不能重复 / 目标座位与目标班次不匹配 / 退票原因不合法：xxx / 请求体不是合法 JSON / 请求参数格式不正确 |
 | `FORBIDDEN` | 403 | 只能操作自己的订单 |
+
+---
+
+## 8. 模块二：航线与班次管理（M2）
+
+> 对应需求 `数据库实践-需求.html` 模块二（2.2 功能1–4、2.3 业务规则、2.4 状态流转）。
+> 全部接口前缀 `/api/admin/**`，**仅 `ADMIN`** 可访问；其他角色 403，未登录 401。
+> 座位图沿用第 7.2 节的 `GET /api/schedules/{id}/seats`（任何已登录用户可读），模块二不另开接口。
+
+### 8.1 分页结构
+
+列表接口统一返回 `PageResult`：
+
+```json
+{
+  "success": true,
+  "message": "操作成功",
+  "data": {
+    "items": [],
+    "total": 12,
+    "page": 1,
+    "size": 10
+  },
+  "code": null
+}
+```
+
+| 参数 | 位置 | 默认 | 说明 |
+|---|---|---|---|
+| `page` | query | 1 | 页码，从 1 开始；小于 1 按 1 处理 |
+| `size` | query | 10 | 每页条数，1–100；超出范围按默认值处理 |
+
+`total` 是**满足筛选条件的总条数**，不是本页条数。
+
+### 8.2 航线管理
+
+#### 8.2.1 航线列表
+
+```http
+GET /api/admin/routes?page=1&size=10&name=&startPort=&endPort=
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `name` | string | 否 | 航线名称模糊匹配（含） |
+| `startPort` | string | 否 | 出发港模糊匹配（含） |
+| `endPort` | string | 否 | 到达港模糊匹配（含） |
+
+`data.items` 元素结构（`RouteView`）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 航线 ID |
+| `routeName` | string | 航线名称 |
+| `startPort` / `endPort` | string | 出发港 / 到达港 |
+| `durationMin` | number | 航程时长（分钟） |
+| `description` | string/null | 航线描述（需求 2.2 功能1） |
+| `status` | string | `正常` / `停运` |
+
+#### 8.2.2 航线详情（含该航线班次）
+
+```http
+GET /api/admin/routes/{id}
+```
+
+`data` = `RouteView` + `schedules: AdminScheduleRowView[]`（该航线全部班次，按发船时间升序，**不分页**）。
+`AdminScheduleRowView` 字段见 8.4.1。航线不存在返回 404 `航线不存在`。
+
+#### 8.2.3 新增 / 编辑航线
+
+```http
+POST /api/admin/routes
+PUT  /api/admin/routes/{id}
+Content-Type: application/json
+
+{
+  "routeName": "广州-香港",
+  "startPort": "广州港",
+  "endPort": "香港港",
+  "durationMin": 120,
+  "description": "经珠江口南下",
+  "status": "正常"
+}
+```
+
+| 字段 | 必填 | 约束 |
+|---|---|---|
+| `routeName` | 是 | 1–100 字符，全局唯一 |
+| `startPort` / `endPort` | 是 | 1–50 字符 |
+| `durationMin` | 是 | 1–1440 的整数 |
+| `description` | 否 | ≤200 字符 |
+| `status` | 否 | `正常`（默认）/ `停运` |
+
+成功返回 200，`message` 为 `新增航线成功` / `修改航线成功`，`data` 为 `RouteView`。
+
+**业务守卫**
+
+| 场景 | 状态码 | message / code |
+|---|---|---|
+| 名称重复（新增或改名撞已有） | 409 | `航线名称已存在` / `CONFLICT` |
+| 该航线已有班次时修改 `durationMin` | 409 | `该航线已有班次，不能修改航程时长` / `CONFLICT` |
+| 航线不存在（PUT） | 404 | `航线不存在` / `NOT_FOUND` |
+| 参数不合法 | 400 | 字段级中文提示 / `VALIDATION_ERROR` |
+
+#### 8.2.4 删除航线
+
+```http
+DELETE /api/admin/routes/{id}
+```
+
+成功返回 200，`message` 为 `删除航线成功`，`data` 为 `null`。
+
+| 场景 | 状态码 | message |
+|---|---|---|
+| 该航线有 `待发布` / `售票中` 班次 | 409 | `该航线还有未完成班次，不能删除` |
+| 该航线只有历史班次（已发船/已完成/已取消） | 409 | `该航线已有历史班次，请改为停运` |
+| 无任何班次 | 200 | 物理删除 |
+| 航线不存在 | 404 | `航线不存在` |
+
+### 8.3 船舶管理
+
+#### 8.3.1 船舶列表
+
+```http
+GET /api/admin/ships?page=1&size=10&name=
+```
+
+`name` 为船名模糊匹配（含）。`data.items` 元素结构（`ShipView`）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 船舶 ID |
+| `shipName` | string | 船名，全局唯一 |
+| `totalSeats` | number | 总座位数（1–500） |
+| `shipType` | string | `普通船` / `高速船` / `豪华船` |
+| `description` | string/null | 描述（需求 2.2 功能2） |
+| `status` | string | `正常` / `维修` / `停用` |
+
+#### 8.3.2 船舶详情 / 新增 / 编辑 / 删除
+
+```http
+GET    /api/admin/ships/{id}
+POST   /api/admin/ships
+PUT    /api/admin/ships/{id}
+DELETE /api/admin/ships/{id}
+```
+
+请求体：
+
+```json
+{
+  "shipName": "粤港01",
+  "totalSeats": 120,
+  "shipType": "高速船",
+  "description": "双体高速客轮",
+  "status": "正常"
+}
+```
+
+成功 `message` 分别为 `新增船舶成功` / `修改船舶成功` / `删除船舶成功`。
+
+| 场景 | 状态码 | message |
+|---|---|---|
+| 船名重复 | 409 | `船舶名称已存在` |
+| 该船已有班次时修改 `totalSeats` | 409 | `该船舶已有班次，不能修改总座位数` |
+| 删除：有 `待发布` / `售票中` 班次 | 409 | `该船舶还有未完成班次，不能删除` |
+| 删除：只有历史班次 | 409 | `该船舶已有历史班次，请将状态改为停用` |
+| 不存在 | 404 | `船舶不存在` |
+
+### 8.4 班次管理（核心）
+
+#### 8.4.1 班次列表
+
+```http
+GET /api/admin/schedules?routeId=&shipId=&dateFrom=&dateTo=&status=&page=1&size=10
+```
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `routeId` | number | 只看某航线 |
+| `shipId` | number | 只看某船舶 |
+| `dateFrom` / `dateTo` | `YYYY-MM-DD` | 按 `DATE(depart_time)` 过滤，两端都含 |
+| `status` | string | `待发布` / `售票中` / `已发船` / `已完成` / `已取消` |
+
+`data.items` 元素结构（`AdminScheduleRowView`）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | number | 班次 ID |
+| `routeId` / `routeName` / `startPort` / `endPort` | — | 航线信息 |
+| `shipId` / `shipName` | — | 船舶信息 |
+| `departTime` / `arriveTime` | string | ISO 本地时间（`Asia/Shanghai`）。`arriveTime` 由服务端按 §8.4.3 算成**真实到达时刻**：跨零点班次的 `arriveTime` 落在**次日**（日期已 +1），前端据「到达日期晚于发船日期」显示 `+1天` |
+| `price` | number | 票价 |
+| `totalSeats` | number | 总座位数（建班次时取自船舶） |
+| `soldSeats` | number | 已售座位数（座位表 `已售` 计数） |
+| `remainingSeats` | number | 余票 = `totalSeats` −（已售 + 未过期锁定），与第 7.1.1 节同口径 |
+| `status` | string | 班次状态 |
+
+#### 8.4.2 班次详情
+
+```http
+GET /api/admin/schedules/{id}
+```
+
+`data` = `AdminScheduleRowView` + `seats: [{ seatId, seatNo, state }]`（结构与 7.2 相同，按座位号升序）。班次不存在返回 404 `班次不存在`。
+
+#### 8.4.3 新增班次
+
+```http
+POST /api/admin/schedules
+Content-Type: application/json
+
+{
+  "routeId": 1,
+  "shipId": 1,
+  "departTime": "2026-11-26T08:00:00",
+  "price": 150.00
+}
+```
+
+- `arriveTime` 由服务端算：`departTime + route.durationMin`；若算出的到达时间不晚于发船时间，则**加 1 天**（跨零点班次，不支持跨两日）。
+- `totalSeats` 取自 `ship.totalSeats`；座位由数据库触发器 `trg_schedule_generate_seats` 在同一事务里自动生成 `totalSeats` 行。
+- 新建班次状态固定为 **`待发布`**，需调用 8.4.6 发布后才进入售票。
+- 成功返回 200，`message` 为 `新增班次成功`，`data` 为 `AdminScheduleRowView`。
+
+| 场景 | 状态码 | message |
+|---|---|---|
+| 同船时间区间重叠（`[depart, arrive)` 有交集） | 409 | `该船舶在该时段已有班次` |
+| 航线不存在 / 停运 | 404 / 409 | `航线不存在` / `航线已停运，不能新建班次` |
+| 船舶不存在 / 非正常 | 404 / 409 | `船舶不存在` / `该船舶当前状态不是正常，不能新建班次` |
+| 票价 < 0 或参数不合法 | 400 | 字段级提示 |
+
+#### 8.4.4 编辑班次
+
+```http
+PUT /api/admin/schedules/{id}
+
+{ "shipId": 2, "departTime": "2026-11-27T09:00:00", "price": 180.00 }
+```
+
+| 场景 | 状态码 | message |
+|---|---|---|
+| 班次为 `已发船` / `已完成` / `已取消` | 409 | `班次已发船或已关闭，不能修改` |
+| 该班次已有有效票（已支付/已检票/已完成）却要改发船时间或船舶 | 409 | `班次已售票，不能修改发船时间或船舶` |
+| 该班次有任何售票记录（含已退票）却要换船 | 409 | `班次已有售票记录，不能更换船舶` |
+| 改发船时间后与其他班次区间重叠 | 409 | `该船舶在该时段已有班次` |
+| 发船时间早于当前时刻 | 409 | `发船时间不能早于当前时间` |
+
+换船（且无任何售票记录）时：删除该班次全部座位并按新船座位数重建，`totalSeats` 同步更新。
+成功返回 200，`message` 为 `修改班次成功`，`data` 为 `AdminScheduleRowView`。
+
+#### 8.4.5 座位重建口径
+
+座位号规则与触发器一致：每排 4 座，排号为 `A…Z`，第 27 排起两级字母 `AA…AZ`、`BA…`，末排不足 4 个就少几个；
+座号形如 `A1`/`AB4`，受 `ck_seat_no` 约束。
+
+#### 8.4.6 发布班次（待发布 → 售票中）
+
+```http
+POST /api/admin/schedules/{id}/publish
+```
+
+仅 `待发布` 可发布，成功 `message` 为 `班次已发布`，`data` 为 `AdminScheduleRowView`；
+非 `待发布` 返回 409 `班次不在待发布状态，不能发布`。
+
+#### 8.4.7 取消班次（触发自动全额退票）
+
+```http
+POST /api/admin/schedules/{id}/cancel
+```
+
+仅 `待发布` / `售票中` 可取消（`已发船` 之后返回 409 `已发船的班次不能取消`）。
+
+取消效果（事务内完成，锁顺序 schedule → orders → ticket → seat）：
+
+1. 该班次所有 `已支付` 票 → `已退票`，`refund_amount = ticket.price`（**全额**），`refund_reason = 班次取消`，座位释放；
+2. 对应订单 `total_amount` 递减实退金额；订单没有有效票时 → `已退票`，否则保持 `已支付`；
+3. 该班次所有 `待支付` 订单 → `已取消`（座位释放、票置 `已取消`）；
+4. 班次 → `已取消`。
+
+成功返回 200，`data`：
+
+```json
+{
+  "id": 10,
+  "refundedTickets": 2,
+  "refundedAmount": 300.00,
+  "cancelledOrders": 1
+}
+```
+
+`message` 为 `班次已取消并完成退款`。
+
+> 需求 2.3-3 的「系统通知」在本期降级：不建通知表（`PLAN.md` D7）。
+> 乘客在「我的船票 / 订单详情」看到的票带 `refundReason = 班次取消`，前端据此显示「班次已取消，已全额退款」，
+> 口径登记在 `docs/deviations.md`。
+
+#### 8.4.8 批量生成班次
+
+```http
+POST /api/admin/schedules/batch
+Content-Type: application/json
+
+{
+  "routeId": 1,
+  "shipId": 1,
+  "dateFrom": "2026-12-01",
+  "dateTo": "2026-12-31",
+  "departTime": "08:00:00",
+  "price": 150.00
+}
+```
+
+- `dateFrom`/`dateTo` 为 `YYYY-MM-DD`，两端都含；`dateFrom` 不能晚于 `dateTo`，跨度最多 **62 天**（含）。
+- `departTime` 为每天的本地发船时刻（`HH:mm:ss`）。
+- 逐日按 8.4.3 的规则生成；**冲突的日期跳过并回报原因**，其余照常生成（可重复执行）。
+- 成功返回 200，`message` 为 `批量生成完成`，`data`：
+
+```json
+{
+  "created": 3,
+  "skipped": [
+    { "date": "2026-12-02", "reason": "该船舶在该时段已有班次" }
+  ]
+}
+```
+
+参数不合法返回 400 `日期范围不合法` / `批量生成最多 62 天` / `发船时刻格式不正确`。
+
+### 8.5 班次状态流转（2.4）
+
+```
+待发布 --发布--> 售票中 --发船时间到--> 已发船 --到达时间到--> 已完成
+售票中 --管理员取消--> 已取消
+```
+
+- `待发布 → 售票中`：只能由 8.4.6 手动发布。
+- `售票中 → 已发船`、`已发船 → 已完成`：由服务端定时任务（每分钟）按 `depart_time` / `arrive_time` 自动推进。
+- `售票中 → 已取消`：8.4.7 取消。
+- 已发船、已完成的班次只读；售票中的班次可改票价，未售票时可改发船时间与船舶。
+
+### 8.6 模块二错误文案汇总
+
+| 错误码 | HTTP | 典型 message |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | 航线名称不能为空 / 航程时长必须在 1–1440 分钟之间 / 船舶名称不能为空 / 总座位数必须在 1–500 之间 / 船舶类型只能是普通船、高速船或豪华船 / 班次不能为空 / 票价不能为负 / 日期范围不合法 / 批量生成最多 62 天 / 发船时刻格式不正确 |
+| `NOT_FOUND` | 404 | 航线不存在 / 船舶不存在 / 班次不存在 |
+| `CONFLICT` | 409 | 航线名称已存在 / 船舶名称已存在 / 该航线还有未完成班次，不能删除 / 该航线已有历史班次，请改为停运 / 该航线已有班次，不能修改航程时长 / 该船舶还有未完成班次，不能删除 / 该船舶已有历史班次，请将状态改为停用 / 该船舶已有班次，不能修改总座位数 / 该船舶在该时段已有班次 / 航线已停运，不能新建班次 / 该船舶当前状态不是正常，不能新建班次 / 班次已发船或已关闭，不能修改 / 班次已售票，不能修改发船时间或船舶 / 班次已有售票记录，不能更换船舶 / 发船时间不能早于当前时间 / 班次不在待发布状态，不能发布 / 只有待发布或售票中的班次可以取消 / 已发船的班次不能取消 |
+| `FORBIDDEN` | 403 | 当前角色没有执行该操作的权限 |
 
 ---
 

@@ -67,6 +67,31 @@ const routes = [
                 name: 'admin-order-detail',
                 component: () => import('../views/OrderDetail.vue'),
                 meta: { roles: ['ADMIN'], title: '订单详情' }
+            },
+            // 模块二：航线与班次管理（docs/api.md §8）
+            {
+                path: 'routes',
+                name: 'admin-routes',
+                component: () => import('../views/admin/AdminRoutes.vue'),
+                meta: { roles: ['ADMIN'], title: '航线管理' }
+            },
+            {
+                path: 'ships',
+                name: 'admin-ships',
+                component: () => import('../views/admin/AdminShips.vue'),
+                meta: { roles: ['ADMIN'], title: '船舶管理' }
+            },
+            {
+                path: 'schedules',
+                name: 'admin-schedules',
+                component: () => import('../views/admin/AdminSchedules.vue'),
+                meta: { roles: ['ADMIN'], title: '班次管理' }
+            },
+            {
+                path: 'schedules/:id',
+                name: 'admin-schedule-detail',
+                component: () => import('../views/admin/AdminScheduleDetail.vue'),
+                meta: { roles: ['ADMIN'], title: '班次详情' }
             }
         ]
     },
