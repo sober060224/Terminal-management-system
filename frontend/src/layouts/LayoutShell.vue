@@ -16,6 +16,9 @@ const menus = computed(() => {
     if (props.role === 'ADMIN') {
         return [
             { path: '/admin', label: '管理后台', icon: 'Setting' },
+            { path: '/admin/routes', label: '航线管理', icon: 'Guide' },
+            { path: '/admin/ships', label: '船舶管理', icon: 'Ship' },
+            { path: '/admin/schedules', label: '班次管理', icon: 'Calendar' },
             { path: '/admin/orders', label: '全部订单', icon: 'List' },
             { path: '/seller', label: '售票工作台', icon: 'Tickets' },
             { path: '/seller/orders', label: '代售订单', icon: 'Document' },
