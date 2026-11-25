@@ -9,7 +9,7 @@
 | 路径 | 内容 |
 |---|---|
 | `database.sql` | 建库建表 + 视图 + 存储过程 + 触发器 + 演示数据（一次执行即可） |
-| `docs/api.md` | 接口契约，前后端唯一口径 |
+| `docs/api.md` | 接口契约，前后端唯一口径（第 8 节是模块二的航线/船舶/班次接口） |
 | `docs/adr/` | 不可逆决策记录（表名、并发、座位锁、改签） |
 | `backend/` | Spring Boot 服务 |
 | `frontend/` | Vue 3 前端 |
@@ -63,6 +63,8 @@ verify\verify-db.cmd                   # 干净库导入 database.sql 并自检�
 verify\verify-m0.cmd                   # 端到端接口验收：CSRF/注册/登录/鉴权/登出，全 assert
 verify\verify-api-doc.cmd              # docs/api.md 里的响应示例 vs 实测响应
 verify\verify-m0-browser.cmd           # 真实浏览器：三角色落点 + 登出换账号（需在 frontend 下跑 node e2e/m0-browser.mjs）
+verify\verify-m2.cmd                   # 模块二端到端：航线/船舶/班次 CRUD、时段冲突、批量生成、取消全额退票、删除守卫
+verify\verify-m2-browser.cmd           # 真实浏览器：管理端航线/船舶/班次三页点击与渲染断言
 verify\verify-m3.cmd                   # 模块三端到端 + 并发：退改签规则、部分退票、双线程并发 + 退票/取消/改签三路并发 + 视图收入断言
 verify\verify-m3-browser.cmd           # 真实浏览器：先造 fixture 订单，再真正提交退票与改签并断言 HTTP 200
 python verify\concurrency_m3.py        # 模块三并发演示：50 线程抢同一座位 → 1 成功、49 个 409
