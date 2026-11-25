@@ -606,6 +606,16 @@ onMounted(() => {
                     <el-input-number v-model="batchForm.price" :min="0" :precision="2" :step="10" placeholder="票价" />
                     <span class="muted unit">元（不能为负）</span>
                 </el-form-item>
+                <el-form-item label="首日预览">
+                    <span v-if="batchPreview">
+                        {{ batchPreview.depart }} 发船 → {{ batchPreview.arrive }} 到达
+                        <el-tag v-if="batchPreview.crosses" size="small" type="warning">+1天</el-tag>
+                        <span class="muted arrive-tip">
+                            （后续每天的发船时刻相同，到达时间由服务端按航线航程自动计算）
+                        </span>
+                    </span>
+                    <span v-else class="muted">选择航线、日期区间和每日发船时刻后自动预览</span>
+                </el-form-item>
             </el-form>
 
             <div v-if="batchResult" class="batch-result">
