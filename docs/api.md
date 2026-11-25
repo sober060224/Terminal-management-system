@@ -913,7 +913,7 @@ GET /api/admin/schedules?routeId=&shipId=&dateFrom=&dateTo=&status=&page=1&size=
 | `id` | number | 班次 ID |
 | `routeId` / `routeName` / `startPort` / `endPort` | — | 航线信息 |
 | `shipId` / `shipName` | — | 船舶信息 |
-| `departTime` / `arriveTime` | string | ISO 本地时间（`Asia/Shanghai`）；`arriveTime` 早于 `departTime` 表示跨零点（前端显示 `+1天`） |
+| `departTime` / `arriveTime` | string | ISO 本地时间（`Asia/Shanghai`）。`arriveTime` 由服务端按 §8.4.3 算成**真实到达时刻**：跨零点班次的 `arriveTime` 落在**次日**（日期已 +1），前端据「到达日期晚于发船日期」显示 `+1天` |
 | `price` | number | 票价 |
 | `totalSeats` | number | 总座位数（建班次时取自船舶） |
 | `soldSeats` | number | 已售座位数（座位表 `已售` 计数） |
