@@ -381,7 +381,6 @@ class OrderServiceTest {
 
     @Test
     void 同班次不能改签() {
-        Orders order = order(1L, 99L, new BigDecimal("100.00"));
         Ticket ticket = ticket(10L, 1L, new BigDecimal("100.00"));
 
         when(ticketRepository.findById(10L)).thenReturn(Optional.of(ticket));
