@@ -4,7 +4,6 @@ import com.gdou.ferry.common.BizException;
 import com.gdou.ferry.common.ErrorCodes;
 import com.gdou.ferry.entity.Route;
 import com.gdou.ferry.entity.Schedule;
-import com.gdou.ferry.entity.Seat;
 import com.gdou.ferry.entity.Ship;
 import com.gdou.ferry.repository.RouteRepository;
 import com.gdou.ferry.repository.ScheduleRepository;

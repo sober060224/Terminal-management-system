@@ -38,9 +38,22 @@ call mvnw.cmd -B -o compile
 call mvnw.cmd -B -o dependency:build-classpath -Dmdep.outputFile=target/cp.txt
 
 :run
+netstat -ano > "%NETFILE%"
+findstr ":8089 " "%NETFILE%" | findstr "LISTENING" >nul
+if not errorlevel 1 goto :already
+REM run.cmd needs target\cp.txt; a plain "mvnw compile" leaves classes without it.
+if exist "target\cp.txt" goto :launch
+echo [2/2] rebuilding classpath file target\cp.txt ...
+call mvnw.cmd -B -o dependency:build-classpath -Dmdep.outputFile=target/cp.txt
+:launch
 echo [2/2] starting backend on 8089 ...
 call run.cmd
 set "CODE=%ERRORLEVEL%"
+goto :end
+:already
+echo [2/2] backend is already listening on 8089: http://localhost:8089/
+echo Run stop.cmd first if you want a fresh restart.
+set "CODE=0"
 goto :end
 
 :find_mysqld
